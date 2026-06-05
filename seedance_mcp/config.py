@@ -26,10 +26,9 @@ MODELS: dict[str, dict] = {
         "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
         "duration_range": [4, 15],
         "supports_first_frame": True,
-        "supports_last_frame": True,
+        "supports_last_frame": False,  # last_frame alone rejected; only valid paired with first_frame
         "supports_camerafixed": True,
         "supports_seed": True,
-        "supports_draft": True,
     },
     "dreamina-seedance-2-0-fast-260128": {
         "label": "Seedance 2.0 Fast",
@@ -38,10 +37,9 @@ MODELS: dict[str, dict] = {
         "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
         "duration_range": [4, 15],
         "supports_first_frame": True,
-        "supports_last_frame": True,
+        "supports_last_frame": False,  # last_frame alone rejected; only valid paired with first_frame
         "supports_camerafixed": True,
         "supports_seed": True,
-        "supports_draft": True,
     },
 }
 

@@ -174,14 +174,12 @@ def _build_content(
     return content
 
 
-def _extra_params(seed: int | None, camerafixed: bool, draft: bool) -> dict:
+def _extra_params(seed: int | None, camerafixed: bool) -> dict:
     params: dict = {}
     if seed is not None:
         params["seed"] = seed
     if camerafixed:
         params["camerafixed"] = True
-    if draft:
-        params["draft"] = True
     return params
 
 

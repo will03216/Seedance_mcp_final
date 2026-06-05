@@ -122,7 +122,6 @@ def seedance_text_to_video(
     fast_mode: bool = False,
     seed: int | None = None,
     camerafixed: bool = False,
-    draft: bool = False,
 ) -> dict:
     """Submit a text-to-video generation job on Seedance 2.0.
 
@@ -140,8 +139,6 @@ def seedance_text_to_video(
         seed: Random seed for reproducible results. Same seed + prompt = same video.
         camerafixed: Fix the camera in place — no panning, zooming, or movement.
                      Useful for product shots and static scene reveals.
-        draft: Force 480p regardless of resolution setting. Faster and cheaper
-               for composition checks before a full-quality render.
 
     Returns:
         dict with task_id, status, and queue info. Use seedance_check_task to poll
@@ -154,9 +151,6 @@ def seedance_text_to_video(
     except ValueError as exc:
         return _error_result(exc, "validation")
 
-    if draft:
-        resolution = "480p"
-
     payload = {
         "model": model,
         "content": _build_content(prompt),
@@ -165,7 +159,7 @@ def seedance_text_to_video(
         "resolution": resolution,
         "generate_audio": generate_audio,
         "watermark": False,
-        **_extra_params(seed, camerafixed, draft),
+        **_extra_params(seed, camerafixed),
     }
     logger.info("[%s] Submitting T2V | ratio=%s dur=%ss res=%s seed=%s", cid, ratio, duration, resolution, seed)
 
@@ -199,7 +193,6 @@ def seedance_image_to_video(
     fast_mode: bool = False,
     seed: int | None = None,
     camerafixed: bool = False,
-    draft: bool = False,
 ) -> dict:
     """Submit an image-to-video generation job on Seedance 2.0.
 
@@ -211,9 +204,10 @@ def seedance_image_to_video(
     2. First frame (first_frame_url): pins the exact starting frame of the video.
        The model animates forward from that frame.
 
-    3. Last frame (last_frame_url): pins the exact ending frame.
+    3. First + Last frame together (both first_frame_url and last_frame_url):
+       creates a transition between two images.
 
-    4. First + Last frame together: creates a transition between two images.
+    Note: last_frame_url alone is not supported — it must be combined with first_frame_url.
 
     Args:
         prompt: Motion and camera description. Tag reference images as [image1], etc.
@@ -228,7 +222,6 @@ def seedance_image_to_video(
         fast_mode: Use the faster/cheaper model variant (lower quality).
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera in place — no movement.
-        draft: Force 480p for a fast composition check.
 
     Returns:
         dict with task_id, status, and queue info. Use seedance_check_task to poll.
@@ -239,15 +232,17 @@ def seedance_image_to_video(
         _validate_common(ratio, duration, resolution, model)
         if not image_urls and not first_frame_url and not last_frame_url:
             raise ValueError(
-                "Provide at least one of: image_urls, first_frame_url, or last_frame_url."
+                "Provide at least one of: image_urls, first_frame_url, or first_frame_url+last_frame_url."
+            )
+        if last_frame_url and not first_frame_url:
+            raise ValueError(
+                "last_frame_url requires first_frame_url. "
+                "The API does not support last-frame-only mode."
             )
         if image_urls and not all(image_urls):
             raise ValueError("image_urls contains an empty entry.")
     except ValueError as exc:
         return _error_result(exc, "validation")
-
-    if draft:
-        resolution = "480p"
 
     n_images = len(image_urls or [])
     has_first = bool(first_frame_url)
@@ -272,7 +267,7 @@ def seedance_image_to_video(
         "resolution": resolution,
         "generate_audio": generate_audio,
         "watermark": False,
-        **_extra_params(seed, camerafixed, draft),
+        **_extra_params(seed, camerafixed),
     }
     logger.info("[%s] Submitting I2V | mode=%s ratio=%s dur=%ss res=%s seed=%s",
                 cid, mode, ratio, duration, resolution, seed)
@@ -438,7 +433,6 @@ def seedance_auto_generate(
     fast_mode: bool = False,
     seed: int | None = None,
     camerafixed: bool = False,
-    draft: bool = False,
     poll_interval: int = 10,
     poll_timeout: int = 300,
 ) -> dict:
@@ -449,9 +443,6 @@ def seedance_auto_generate(
     PREFER the two-step pattern instead:
         1. seedance_text_to_video or seedance_image_to_video  (returns task_id immediately)
         2. seedance_check_task polled every 10s until status == 'succeeded'
-
-    Only use seedance_auto_generate for very short draft clips where generation
-    is likely to finish within 55 seconds (draft=True, duration=4, fast_mode=True).
 
     Args:
         prompt: Scene description (T2V) or motion description tagging images as
@@ -466,7 +457,6 @@ def seedance_auto_generate(
         fast_mode: Use the faster/cheaper model variant.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera in place — no movement.
-        draft: Force 480p for a fast composition check.
         poll_interval: Seconds between status checks. Default: 10.
         poll_timeout: Maximum seconds to wait for completion. Default: 300 (5 min).
 
@@ -483,9 +473,6 @@ def seedance_auto_generate(
             raise ValueError("image_urls contains an empty entry.")
     except ValueError as exc:
         return _error_result(exc, "validation")
-
-    if draft:
-        resolution = "480p"
 
     has_images = bool(image_urls or first_frame_url or last_frame_url)
     mode = "T2V" if not has_images else (
@@ -509,7 +496,7 @@ def seedance_auto_generate(
         "resolution": resolution,
         "generate_audio": generate_audio,
         "watermark": False,
-        **_extra_params(seed, camerafixed, draft),
+        **_extra_params(seed, camerafixed),
     }
     logger.info("[%s] Auto-generate %s | ratio=%s dur=%ss res=%s seed=%s", cid, mode, ratio, duration, resolution, seed)
 
@@ -573,7 +560,6 @@ def seedance_generate(
     fast_mode: bool = False,
     seed: int | None = None,
     camerafixed: bool = False,
-    draft: bool = False,
     asset_group_id: str = "",
 ) -> dict:
     """High-level tool: generate a Seedance video with automatic asset-library upload
@@ -594,7 +580,8 @@ def seedance_generate(
         image_url: Reference image — plain HTTPS URL (auto-uploaded to asset library)
                    or existing asset:// ref (skips upload).
         first_frame_url: Pin the exact starting frame (HTTPS or asset://).
-        last_frame_url: Pin the exact ending frame (HTTPS or asset://).
+        last_frame_url: Pin the exact ending frame (HTTPS or asset://). Requires
+                        first_frame_url — last-frame-only mode is not supported by the API.
         ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
         duration: Video length in seconds (4–15). Default: 5.
         resolution: Output quality. One of: 480p | 720p | 1080p. Default: 720p.
@@ -602,14 +589,13 @@ def seedance_generate(
         fast_mode: Use the faster/cheaper model variant. Default: false.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no panning or zooming. Default: false.
-        draft: Force 480p for a quick composition check. Default: false.
         asset_group_id: Reuse an existing asset group instead of creating a new one.
 
     Returns:
         dict with:
             task_id      – poll with seedance_check_task every 10–15s
             status       – "queued" on success
-            mode         – T2V | I2V-Reference | I2V-FirstFrame | I2V-LastFrame | I2V-FirstLastFrame
+            mode         – T2V | I2V-Reference | I2V-FirstFrame | I2V-FirstLastFrame
             steps        – list of pipeline steps taken with outcomes
             asset_id     – populated when image_url was uploaded via asset library
     """
@@ -617,11 +603,13 @@ def seedance_generate(
     model = FAST_MODEL if fast_mode else DEFAULT_MODEL
     try:
         _validate_common(ratio, duration, resolution, model)
+        if last_frame_url and not first_frame_url:
+            raise ValueError(
+                "last_frame_url requires first_frame_url. "
+                "The API does not support last-frame-only mode."
+            )
     except ValueError as exc:
         return _error_result(exc, "validation")
-
-    if draft:
-        resolution = "480p"
 
     steps: list[dict] = []
     resolved_image_url = image_url
@@ -689,7 +677,7 @@ def seedance_generate(
         "resolution": resolution,
         "generate_audio": generate_audio,
         "watermark": False,
-        **_extra_params(seed, camerafixed, draft),
+        **_extra_params(seed, camerafixed),
     }
 
     logger.info("[%s] Submitting seedance_generate | mode=%s ratio=%s dur=%ss res=%s", cid, mode, ratio, duration, resolution)
@@ -948,7 +936,6 @@ def seedance_list_models() -> dict:
                     "last_frame": caps.get("supports_last_frame", False),
                     "camerafixed": caps.get("supports_camerafixed", False),
                     "seed": caps.get("supports_seed", False),
-                    "draft": caps.get("supports_draft", False),
                 },
             }
             for model_id, caps in MODELS.items()
