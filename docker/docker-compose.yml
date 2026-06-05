@@ -1,0 +1,14 @@
+services:
+  seedance-mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      MCP_TRANSPORT: sse
+      ARK_API_KEY: ${ARK_API_KEY}
+      ARK_AK: ${ARK_AK}
+      ARK_SK: ${ARK_SK}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:-}
+    restart: unless-stopped

@@ -11,6 +11,7 @@ Tools exposed:
     seedance_list_tasks           – list recent tasks with optional status filter
     seedance_cancel_task          – cancel a queued or running task
     seedance_auto_generate        – submit + poll in one call, returns video URL directly
+    seedance_generate             – recommended: upload + submit in one call
     seedance_ping                 – liveness / config check
 
     seedance_create_asset_group   – create an asset group (one-time setup for portrait images)
@@ -36,20 +37,12 @@ Environment variables:
 
 from __future__ import annotations
 
-__version__ = "1.5.0"
-
-import datetime
-import hashlib
-import hmac as hmac_lib
 import json
 import logging
 import os
-import random
 import time
 import uuid
-from pathlib import Path
 from typing import Any
-from urllib import error, request, parse
 
 # ---------------------------------------------------------------------------
 # Optional .env support for local development
@@ -73,74 +66,27 @@ except ImportError as exc:
         "Then re-run this server."
     ) from exc
 
+from .config import (
+    __version__,
+    ASSET_POLL_TIMEOUT, ASSET_POLL_INTERVAL,
+    DEFAULT_MODEL, FAST_MODEL, INCLUDE_RAW, MODELS,
+    PAGE_SIZE_MAX, POLL_TIMEOUT, SUBMIT_TIMEOUT, TERMINAL,
+)
+from .auth import (
+    _asset_api_with_retry, extract_nested, upload_image_as_asset,
+)
+from .client import (
+    _build_content, _cancel, _error_result, _extra_params,
+    _extract_video_url, _get, _maybe_raw, _submit,
+    _http_with_retry, _validate_common,
+)
+from .config import BASE_URL
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("seedance_mcp")
-
-# ---------------------------------------------------------------------------
-# Configuration from environment
-# ---------------------------------------------------------------------------
-
-# Video generation API (Bearer token auth)
-BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
-DEFAULT_MODEL = "dreamina-seedance-2-0-260128"
-FAST_MODEL = "dreamina-seedance-2-0-fast-260128"
-
-SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "30"))
-POLL_TIMEOUT = int(os.getenv("SEEDANCE_POLL_TIMEOUT", "15"))
-MAX_RETRIES = int(os.getenv("SEEDANCE_MAX_RETRIES", "3"))
-INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes")
-
-TERMINAL = {"succeeded", "failed", "cancelled"}
-
-VALID_RATIOS = {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"}
-VALID_RESOLUTIONS = {"480p", "720p", "1080p"}
-PAGE_SIZE_MAX = 50
-
-# Model capability registry — single source of truth for validation
-MODELS: dict[str, dict] = {
-    "dreamina-seedance-2-0-260128": {
-        "label": "Seedance 2.0 Standard",
-        "alias": "standard",
-        "resolutions": ["480p", "720p", "1080p"],
-        "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
-        "duration_range": [4, 15],
-        "supports_first_frame": True,
-        "supports_last_frame": True,
-        "supports_camerafixed": True,
-        "supports_seed": True,
-        "supports_draft": True,
-    },
-    "dreamina-seedance-2-0-fast-260128": {
-        "label": "Seedance 2.0 Fast",
-        "alias": "fast",
-        "resolutions": ["480p", "720p", "1080p"],
-        "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
-        "duration_range": [4, 15],
-        "supports_first_frame": True,
-        "supports_last_frame": True,
-        "supports_camerafixed": True,
-        "supports_seed": True,
-        "supports_draft": True,
-    },
-}
-
-def _model_caps(model: str) -> dict:
-    return MODELS.get(model, MODELS[DEFAULT_MODEL])
-
-DURATION_MIN = _model_caps(DEFAULT_MODEL)["duration_range"][0]
-DURATION_MAX = _model_caps(DEFAULT_MODEL)["duration_range"][1]
-
-# Asset library API (HMAC-SHA256 AK/SK auth)
-ASSET_HOST = "ark.ap-southeast-1.byteplusapi.com"
-ASSET_SERVICE = "ark"
-ASSET_REGION = "ap-southeast-1"
-ASSET_VERSION = "2024-01-01"
-ASSET_POLL_INTERVAL = int(os.getenv("SEEDANCE_ASSET_POLL_INTERVAL", "10"))
-ASSET_POLL_TIMEOUT = int(os.getenv("SEEDANCE_ASSET_POLL_TIMEOUT", "120"))
-ASSET_TERMINAL = {"Active", "Failed"}
 
 # ---------------------------------------------------------------------------
 # MCP app
@@ -161,428 +107,9 @@ mcp = FastMCP(
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
-# ---------------------------------------------------------------------------
-# API key — cached at first use, fail fast thereafter
-# ---------------------------------------------------------------------------
-_cached_key: str | None = None
-
-
-def _api_key() -> str:
-    global _cached_key
-    if _cached_key:
-        return _cached_key
-    key = os.getenv("ARK_API_KEY", "").strip()
-    if not key:
-        fallback = Path(__file__).parent / "ark_api_key.txt"
-        if fallback.exists():
-            key = fallback.read_text().strip()
-    if not key:
-        raise RuntimeError(
-            "ARK_API_KEY is not set. "
-            "Export it as an environment variable or create ark_api_key.txt next to server.py."
-        )
-    _cached_key = key
-    return key
-
 
 # ---------------------------------------------------------------------------
-# Asset library credentials — AK/SK (cached)
-# ---------------------------------------------------------------------------
-_cached_ak: str | None = None
-_cached_sk: str | None = None
-
-
-def _asset_credentials() -> tuple[str, str]:
-    global _cached_ak, _cached_sk
-    if _cached_ak and _cached_sk:
-        return _cached_ak, _cached_sk
-    ak = os.getenv("ARK_AK", "").strip()
-    sk = os.getenv("ARK_SK", "").strip()
-    if not ak or not sk:
-        raise RuntimeError(
-            "ARK_AK and ARK_SK are required for asset library operations. "
-            "Pass them as -e ARK_AK=<key> -e ARK_SK=<secret> when registering the server."
-        )
-    _cached_ak, _cached_sk = ak, sk
-    return ak, sk
-
-
-# ---------------------------------------------------------------------------
-# HMAC-SHA256 signing for the Asset Library OpenAPI
-# ---------------------------------------------------------------------------
-
-def _hmac_sha256(key: bytes, content: str) -> bytes:
-    return hmac_lib.new(key, content.encode("utf-8"), hashlib.sha256).digest()
-
-
-def _sha256_hex(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-def _norm_query(params: dict) -> str:
-    """Sort and URL-encode query params per BytePlus signing spec."""
-    parts = []
-    for key in sorted(params.keys()):
-        values = params[key] if isinstance(params[key], list) else [params[key]]
-        for v in values:
-            parts.append(
-                parse.quote(key, safe="-_.~") + "=" + parse.quote(str(v), safe="-_.~")
-            )
-    return "&".join(parts)
-
-
-def _asset_api(action: str, body: dict, timeout: int = POLL_TIMEOUT) -> dict[str, Any]:
-    """Call a BytePlus Asset Library OpenAPI action with HMAC-SHA256 signing."""
-    ak, sk = _asset_credentials()
-    body_str = json.dumps(body)
-    now = datetime.datetime.utcnow()
-    x_date = now.strftime("%Y%m%dT%H%M%SZ")
-    short_date = x_date[:8]
-    content_sha256 = _sha256_hex(body_str)
-
-    query_params = {"Action": action, "Version": ASSET_VERSION}
-    canonical_query = _norm_query(query_params)
-
-    canonical_headers = (
-        f"content-type:application/json\n"
-        f"host:{ASSET_HOST}\n"
-        f"x-content-sha256:{content_sha256}\n"
-        f"x-date:{x_date}\n"
-    )
-    signed_headers = "content-type;host;x-content-sha256;x-date"
-
-    canonical_request = "\n".join([
-        "POST",
-        "/",
-        canonical_query,
-        canonical_headers,
-        signed_headers,
-        content_sha256,
-    ])
-
-    credential_scope = f"{short_date}/{ASSET_REGION}/{ASSET_SERVICE}/request"
-    string_to_sign = "\n".join([
-        "HMAC-SHA256",
-        x_date,
-        credential_scope,
-        _sha256_hex(canonical_request),
-    ])
-
-    k_date    = _hmac_sha256(sk.encode("utf-8"), short_date)
-    k_region  = _hmac_sha256(k_date, ASSET_REGION)
-    k_service = _hmac_sha256(k_region, ASSET_SERVICE)
-    k_signing = _hmac_sha256(k_service, "request")
-    signature = _hmac_sha256(k_signing, string_to_sign).hex()
-
-    authorization = (
-        f"HMAC-SHA256 Credential={ak}/{credential_scope}, "
-        f"SignedHeaders={signed_headers}, "
-        f"Signature={signature}"
-    )
-
-    url = f"https://{ASSET_HOST}/?{canonical_query}"
-    headers = {
-        "Authorization": authorization,
-        "Content-Type": "application/json",
-        "X-Content-Sha256": content_sha256,
-        "X-Date": x_date,
-        "Host": ASSET_HOST,
-    }
-    req = request.Request(url, data=body_str.encode(), headers=headers, method="POST")
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except error.HTTPError as exc:
-        detail = exc.read().decode(errors="ignore")
-        raise RuntimeError(f"Asset API HTTP {exc.code}: {detail}") from exc
-
-
-def _asset_api_with_retry(action: str, body: dict, correlation_id: str = "") -> dict[str, Any]:
-    tag = f"[{correlation_id}] " if correlation_id else ""
-    last_exc: Exception | None = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            return _asset_api(action, body)
-        except RuntimeError as exc:
-            last_exc = exc
-            msg = str(exc)
-            # Don't retry config errors or 4xx responses — they won't self-heal.
-            if "HTTP 4" in msg or "ARK_AK" in msg or "ARK_SK" in msg:
-                raise
-            wait = (2 ** attempt) + random.random()
-            logger.warning("%sAsset API retry in %.1fs (attempt %d/%d): %s", tag, wait, attempt + 1, MAX_RETRIES, exc)
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(wait)
-        except error.URLError as exc:
-            last_exc = exc
-            wait = (2 ** attempt) + random.random()
-            logger.warning("%sAsset API network error, retrying in %.1fs: %s", tag, wait, exc)
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(wait)
-    raise RuntimeError(f"Asset API request failed after {MAX_RETRIES} attempts: {last_exc}") from last_exc
-
-
-def _extract_nested(data: dict, *keys: str) -> str:
-    """Safely extract a string value from a nested dict."""
-    current: Any = data
-    for key in keys:
-        if not isinstance(current, dict):
-            return ""
-        current = current.get(key)
-    if current is None:
-        return ""
-    return str(current)
-
-
-# ---------------------------------------------------------------------------
-# Input validation helpers
-# ---------------------------------------------------------------------------
-
-def _validate_common(ratio: str, duration: int, resolution: str, model: str = DEFAULT_MODEL) -> None:
-    caps = _model_caps(model)
-    valid_ratios = set(caps["ratios"])
-    valid_resolutions = set(caps["resolutions"])
-    dur_min, dur_max = caps["duration_range"]
-
-    if ratio not in valid_ratios:
-        raise ValueError(
-            f"Invalid ratio {ratio!r}. Must be one of: {', '.join(sorted(valid_ratios))}"
-        )
-    if not dur_min <= duration <= dur_max:
-        raise ValueError(
-            f"Invalid duration {duration}. Must be between {dur_min} and {dur_max} seconds for {model}."
-        )
-    if resolution not in valid_resolutions:
-        raise ValueError(
-            f"Invalid resolution {resolution!r}. Must be one of: {', '.join(sorted(valid_resolutions))}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# HTTP client with retry + backoff
-# ---------------------------------------------------------------------------
-
-def _http(
-    url: str,
-    *,
-    method: str,
-    payload: dict | None = None,
-    timeout: int = POLL_TIMEOUT,
-) -> dict[str, Any]:
-    key = _api_key()
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    body = json.dumps(payload).encode() if payload else None
-    req = request.Request(url, data=body, headers=headers, method=method)
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
-    except error.HTTPError as exc:
-        detail = exc.read().decode(errors="ignore")
-        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
-
-
-def _http_with_retry(
-    url: str,
-    *,
-    method: str,
-    payload: dict | None = None,
-    timeout: int = POLL_TIMEOUT,
-    correlation_id: str = "",
-) -> dict[str, Any]:
-    tag = f"[{correlation_id}] " if correlation_id else ""
-    last_exc: Exception | None = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            return _http(url, method=method, payload=payload, timeout=timeout)
-        except RuntimeError as exc:
-            last_exc = exc
-            # Only retry on server-side (5xx) or network errors
-            if "HTTP 4" in str(exc):
-                raise  # client errors are not retryable
-            wait = (2 ** attempt) + random.random()
-            logger.warning(
-                "%sRetrying in %.1fs (attempt %d/%d): %s",
-                tag, wait, attempt + 1, MAX_RETRIES, exc,
-            )
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(wait)
-        except error.URLError as exc:
-            last_exc = exc
-            wait = (2 ** attempt) + random.random()
-            logger.warning("%sNetwork error, retrying in %.1fs: %s", tag, wait, exc)
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(wait)
-    raise RuntimeError(f"Request failed after {MAX_RETRIES} attempts: {last_exc}") from last_exc
-
-
-# ---------------------------------------------------------------------------
-# Content builder
-# ---------------------------------------------------------------------------
-
-def _build_content(
-    prompt: str,
-    image_urls: list[str] | None = None,
-    first_frame_url: str | None = None,
-    last_frame_url: str | None = None,
-    video_urls: list[str] | None = None,
-    audio_urls: list[str] | None = None,
-) -> list[dict]:
-    content: list[dict] = [{"type": "text", "text": prompt}]
-    # Frame-pinning roles must come before reference images
-    if first_frame_url:
-        content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
-    if last_frame_url:
-        content.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
-    for u in image_urls or []:
-        content.append({"type": "image_url", "image_url": {"url": u}, "role": "reference_image"})
-    for u in video_urls or []:
-        content.append({"type": "video_url", "video_url": {"url": u}, "role": "reference_video"})
-    for u in audio_urls or []:
-        content.append({"type": "audio_url", "audio_url": {"url": u}, "role": "reference_audio"})
-    return content
-
-
-def _extra_params(seed: int | None, camerafixed: bool, draft: bool) -> dict:
-    """Build optional payload params — only include when explicitly set."""
-    params: dict = {}
-    if seed is not None:
-        params["seed"] = seed
-    if camerafixed:
-        params["camerafixed"] = True
-    if draft:
-        params["draft"] = True
-    return params
-
-
-# ---------------------------------------------------------------------------
-# API wrappers
-# ---------------------------------------------------------------------------
-
-def _submit(payload: dict, correlation_id: str = "") -> dict:
-    return _http_with_retry(
-        f"{BASE_URL}/contents/generations/tasks",
-        method="POST",
-        payload=payload,
-        timeout=SUBMIT_TIMEOUT,
-        correlation_id=correlation_id,
-    )
-
-
-def _get(task_id: str, correlation_id: str = "") -> dict:
-    return _http_with_retry(
-        f"{BASE_URL}/contents/generations/tasks/{task_id}",
-        method="GET",
-        timeout=POLL_TIMEOUT,
-        correlation_id=correlation_id,
-    )
-
-
-def _cancel(task_id: str, correlation_id: str = "") -> dict:
-    return _http_with_retry(
-        f"{BASE_URL}/contents/generations/tasks/{task_id}",
-        method="DELETE",
-        timeout=POLL_TIMEOUT,
-        correlation_id=correlation_id,
-    )
-
-
-def _extract_video_url(task: dict) -> str | None:
-    for extractor in [
-        lambda t: t["content"]["video_url"],
-        lambda t: t["result"]["video_url"],
-        lambda t: t["output"]["video_url"],
-    ]:
-        try:
-            url = extractor(task)
-            if url:
-                return url
-        except (KeyError, TypeError):
-            pass
-    if task.get("status") == "succeeded":
-        logger.warning(
-            "Task succeeded but video_url could not be extracted. Response keys: %s",
-            list(task.keys()),
-        )
-    return None
-
-
-def _maybe_raw(resp: dict) -> dict:
-    return {"raw": resp} if INCLUDE_RAW else {}
-
-
-def _error_result(exc: Exception, context: str = "") -> dict[str, Any]:
-    msg = str(exc)
-    logger.error("Error%s: %s", f" ({context})" if context else "", msg)
-    return {"status": "error", "error": msg}
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers for seedance_generate's pre-generation pipeline
-# ---------------------------------------------------------------------------
-
-def _upload_image_as_asset(image_url: str, group_id: str, cid: str) -> tuple[str, str, dict | None]:
-    """Upload image_url to the asset library and poll until Active.
-
-    Returns (asset_id, asset_ref, error_dict).
-    On success error_dict is None; on failure asset_ref is "" and error_dict has details.
-    """
-    logger.info("[%s] Creating asset | group=%s url=%.60s", cid, group_id, image_url)
-    create_body = {"GroupId": group_id, "URL": image_url, "AssetType": "Image"}
-    try:
-        create_resp = _asset_api_with_retry("CreateAsset", create_body, correlation_id=cid)
-    except RuntimeError as exc:
-        return "", "", {"status": "error", "error": str(exc)}
-
-    asset_id = (
-        _extract_nested(create_resp, "Result", "Id")
-        or _extract_nested(create_resp, "Result", "AssetId")
-        or _extract_nested(create_resp, "Id")
-        or _extract_nested(create_resp, "AssetId")
-    )
-    if not asset_id:
-        return "", "", {"status": "error", "error": "CreateAsset did not return an asset_id."}
-
-    logger.info("[%s] Asset created: %s — polling until Active (max %ds)", cid, asset_id, ASSET_POLL_TIMEOUT)
-    deadline = time.monotonic() + ASSET_POLL_TIMEOUT
-    while time.monotonic() < deadline:
-        time.sleep(ASSET_POLL_INTERVAL)
-        try:
-            get_resp = _asset_api_with_retry("GetAsset", {"Id": asset_id}, correlation_id=cid)
-        except RuntimeError as exc:
-            logger.warning("[%s] GetAsset poll error (will retry): %s", cid, exc)
-            continue
-
-        status = (
-            _extract_nested(get_resp, "Result", "Status")
-            or _extract_nested(get_resp, "Status")
-        )
-        logger.info("[%s] Asset %s status: %s", cid, asset_id, status)
-
-        if status == "Active":
-            return asset_id, f"asset://{asset_id}", None
-        if status == "Failed":
-            err = (
-                _extract_nested(get_resp, "Result", "Error")
-                or _extract_nested(get_resp, "Error")
-                or "unknown error"
-            )
-            return asset_id, "", {"status": "Failed", "error": f"Asset processing failed: {err}"}
-
-    return asset_id, f"asset://{asset_id}", {
-        "status": "timeout",
-        "error": (
-            f"Asset did not become Active within {ASSET_POLL_TIMEOUT}s. "
-            f"Use seedance_get_asset(asset_id='{asset_id}') to continue polling."
-        ),
-    }
-
-
-# ---------------------------------------------------------------------------
-# MCP Tools
+# MCP Tools — Video generation
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -618,8 +145,7 @@ def seedance_text_to_video(
 
     Returns:
         dict with task_id, status, and queue info. Use seedance_check_task to poll
-        for the video URL once status reaches 'succeeded', or use
-        seedance_auto_generate to submit and wait in a single call.
+        for the video URL once status reaches 'succeeded'.
     """
     cid = str(uuid.uuid4())[:8]
     model = FAST_MODEL if fast_mode else DEFAULT_MODEL
@@ -688,9 +214,6 @@ def seedance_image_to_video(
     3. Last frame (last_frame_url): pins the exact ending frame.
 
     4. First + Last frame together: creates a transition between two images.
-
-    Modes can be combined (e.g. first_frame_url + image_urls for a reference portrait
-    with a fixed starting frame).
 
     Args:
         prompt: Motion and camera description. Tag reference images as [image1], etc.
@@ -1081,8 +604,6 @@ def seedance_generate(
         camerafixed: Fix the camera — no panning or zooming. Default: false.
         draft: Force 480p for a quick composition check. Default: false.
         asset_group_id: Reuse an existing asset group instead of creating a new one.
-                        Pass the group_id from a previous seedance_create_asset_group
-                        call to avoid creating a new group on every run.
 
     Returns:
         dict with:
@@ -1106,11 +627,7 @@ def seedance_generate(
     resolved_image_url = image_url
     asset_id: str = ""
 
-    # ------------------------------------------------------------------
-    # Asset upload (only for plain HTTPS image_url)
-    # ------------------------------------------------------------------
     if image_url and not image_url.startswith("asset://"):
-        # Step 1 — asset group
         group_id = asset_group_id
         if not group_id:
             group_name = f"seedance-generate-{cid}"
@@ -1125,10 +642,10 @@ def seedance_generate(
                 return _error_result(exc, cid)
 
             group_id = (
-                _extract_nested(grp_resp, "Result", "Id")
-                or _extract_nested(grp_resp, "Result", "GroupId")
-                or _extract_nested(grp_resp, "Id")
-                or _extract_nested(grp_resp, "GroupId")
+                extract_nested(grp_resp, "Result", "Id")
+                or extract_nested(grp_resp, "Result", "GroupId")
+                or extract_nested(grp_resp, "Id")
+                or extract_nested(grp_resp, "GroupId")
             )
             if not group_id:
                 return {"status": "error", "error": "Failed to create asset group — group_id not returned.", "steps": steps}
@@ -1136,17 +653,13 @@ def seedance_generate(
         else:
             steps.append({"step": "reuse_asset_group", "group_id": group_id, "outcome": "ok"})
 
-        # Step 2 — upload image and wait until Active
-        asset_id, asset_ref, upload_err = _upload_image_as_asset(image_url, group_id, cid)
+        asset_id, asset_ref, upload_err = upload_image_as_asset(image_url, group_id, cid)
         if upload_err:
             upload_err["steps"] = steps
             return upload_err
         steps.append({"step": "upload_asset", "asset_id": asset_id, "outcome": "Active"})
         resolved_image_url = asset_ref
 
-    # ------------------------------------------------------------------
-    # Determine mode and build payload
-    # ------------------------------------------------------------------
     has_image = bool(resolved_image_url)
     has_first = bool(first_frame_url)
     has_last = bool(last_frame_url)
@@ -1204,6 +717,10 @@ def seedance_generate(
     return result
 
 
+# ---------------------------------------------------------------------------
+# MCP Tools — Asset library
+# ---------------------------------------------------------------------------
+
 @mcp.tool()
 def seedance_create_asset_group(
     name: str,
@@ -1215,7 +732,7 @@ def seedance_create_asset_group(
     then reuse the returned group_id for all seedance_upload_asset calls.
 
     Args:
-        name: A short, descriptive name for the group (e.g. "magnific-portraits").
+        name: A short, descriptive name for the group (e.g. "my-portraits").
         description: Optional description.
 
     Returns:
@@ -1233,10 +750,10 @@ def seedance_create_asset_group(
         return _error_result(exc, cid)
 
     group_id = (
-        _extract_nested(resp, "Result", "Id")
-        or _extract_nested(resp, "Result", "GroupId")
-        or _extract_nested(resp, "Id")
-        or _extract_nested(resp, "GroupId")
+        extract_nested(resp, "Result", "Id")
+        or extract_nested(resp, "Result", "GroupId")
+        or extract_nested(resp, "Id")
+        or extract_nested(resp, "GroupId")
     )
     if not group_id:
         logger.warning("[%s] Could not extract group_id. Response keys: %s", cid, list(resp.keys()))
@@ -1279,7 +796,6 @@ def seedance_upload_asset(
         dict with:
             asset_id   – the raw asset ID (e.g. "asset-20260225023032-gnzwk")
             asset_ref  – the asset:// URL to pass to seedance_image_to_video
-                         (e.g. "asset://asset-20260225023032-gnzwk")
             status     – "Active" when ready
     """
     cid = str(uuid.uuid4())[:8]
@@ -1296,10 +812,10 @@ def seedance_upload_asset(
         return _error_result(exc, cid)
 
     asset_id = (
-        _extract_nested(create_resp, "Result", "Id")
-        or _extract_nested(create_resp, "Result", "AssetId")
-        or _extract_nested(create_resp, "Id")
-        or _extract_nested(create_resp, "AssetId")
+        extract_nested(create_resp, "Result", "Id")
+        or extract_nested(create_resp, "Result", "AssetId")
+        or extract_nested(create_resp, "Id")
+        or extract_nested(create_resp, "AssetId")
     )
     if not asset_id:
         return {
@@ -1319,8 +835,8 @@ def seedance_upload_asset(
             continue
 
         status = (
-            _extract_nested(get_resp, "Result", "Status")
-            or _extract_nested(get_resp, "Status")
+            extract_nested(get_resp, "Result", "Status")
+            or extract_nested(get_resp, "Status")
         )
         logger.info("[%s] Asset %s status: %s", cid, asset_id, status)
 
@@ -1339,8 +855,8 @@ def seedance_upload_asset(
 
         if status == "Failed":
             err = (
-                _extract_nested(get_resp, "Result", "Error")
-                or _extract_nested(get_resp, "Error")
+                extract_nested(get_resp, "Result", "Error")
+                or extract_nested(get_resp, "Error")
                 or "unknown error"
             )
             return {
@@ -1381,12 +897,8 @@ def seedance_get_asset(asset_id: str) -> dict:
         return _error_result(exc, cid)
 
     status = (
-        _extract_nested(resp, "Result", "Status")
-        or _extract_nested(resp, "Status")
-    )
-    asset_url = (
-        _extract_nested(resp, "Result", "URL")
-        or _extract_nested(resp, "URL")
+        extract_nested(resp, "Result", "Status")
+        or extract_nested(resp, "Status")
     )
     result: dict[str, Any] = {
         "asset_id": asset_id,
@@ -1400,8 +912,8 @@ def seedance_get_asset(asset_id: str) -> dict:
         )
     elif status == "Failed":
         result["error"] = (
-            _extract_nested(resp, "Result", "Error")
-            or _extract_nested(resp, "Error")
+            extract_nested(resp, "Result", "Error")
+            or extract_nested(resp, "Error")
             or "unknown error"
         )
         result["message"] = "Asset processing failed."
@@ -1418,8 +930,7 @@ def seedance_list_models() -> dict:
 
     Returns:
         dict with all supported models, their aliases, resolution/ratio/duration
-        support, and which optional features (frame-pinning, camerafixed, etc.)
-        each model supports.
+        support, and which optional features each model supports.
     """
     return {
         "default_model": DEFAULT_MODEL,
@@ -1452,6 +963,7 @@ def seedance_ping() -> dict:
     Returns:
         dict with server version, configured models, base URL, and API key status.
     """
+    from pathlib import Path
     return {
         "status": "ok",
         "version": __version__,
@@ -1462,7 +974,6 @@ def seedance_ping() -> dict:
         "asset_credentials_configured": bool(os.getenv("ARK_AK") and os.getenv("ARK_SK")),
         "submit_timeout": SUBMIT_TIMEOUT,
         "poll_timeout": POLL_TIMEOUT,
-        "max_retries": MAX_RETRIES,
         "asset_poll_interval": ASSET_POLL_INTERVAL,
         "asset_poll_timeout": ASSET_POLL_TIMEOUT,
         "debug_raw": INCLUDE_RAW,
@@ -1473,7 +984,7 @@ def seedance_ping() -> dict:
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+def _main() -> None:
     _transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
     _port = int(os.getenv("PORT", "8000"))
     _auth_token = os.getenv("MCP_AUTH_TOKEN", "").strip()
@@ -1531,3 +1042,7 @@ if __name__ == "__main__":
     else:
         logger.info("Starting Seedance 2.0 MCP server v%s (stdio transport)...", __version__)
         mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    _main()

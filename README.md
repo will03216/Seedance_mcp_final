@@ -9,7 +9,6 @@ MCP server for **BytePlus Seedance 2.0** — lets any MCP-compatible AI client (
 **Requirements:** Python 3.10+, BytePlus ModelArk API key, active prepaid resource pack, IAM Access Key + Secret Key.
 
 ```bash
-cd seedance_mcp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -28,8 +27,8 @@ Add to Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_conf
 {
   "mcpServers": {
     "seedance": {
-      "command": "/absolute/path/to/seedance_mcp/.venv/bin/python",
-      "args": ["/absolute/path/to/seedance_mcp/server.py"]
+      "command": "/absolute/path/to/repo/.venv/bin/python",
+      "args": ["-m", "seedance_mcp"]
     }
   }
 }
@@ -108,6 +107,14 @@ Pass `asset_group_id` to `seedance_generate` on repeat runs to skip group creati
 For customer-facing deployments, run the server as an HTTP service and protect it with a gateway token — the same pattern used by Magnific's hosted MCP endpoint:
 
 ```bash
+# copy .env.example → .env and fill in your credentials, then:
+docker compose -f docker/docker-compose.yml up
+```
+
+Or with plain Docker:
+
+```bash
+docker build -f docker/Dockerfile -t seedance-mcp .
 docker run -p 8000:8000 \
   -e MCP_TRANSPORT=sse \
   -e ARK_API_KEY=<your-key> \
