@@ -1,4 +1,46 @@
+# Media
 *.png
 *.jpg
 *.jpeg
 *.webp
+*.mp4
+*.mov
+
+# Credentials & secrets — never commit these
+.env
+.env.*
+!.env.example
+*.key
+ark_api_key.txt
+~/.seedance/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.eggs/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Docker
+.dockerignore

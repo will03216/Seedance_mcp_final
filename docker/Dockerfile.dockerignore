@@ -1,9 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-temp/
-.env
-ark_api_key.txt
-SESSION_CONTEXT.md
-INSTRUCTIONS.md
