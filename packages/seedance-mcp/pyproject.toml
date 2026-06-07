@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "seedance-mcp"
 version = "2.0.0"
 description = "MCP server exposing BytePlus Seedance 2.0 video generation to AI clients"
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["byteplus", "seedance", "mcp", "video-generation", "ai"]

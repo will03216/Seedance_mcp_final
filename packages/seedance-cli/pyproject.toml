@@ -6,7 +6,6 @@ build-backend = "hatchling.build"
 name = "seedance-cli"
 version = "2.0.0"
 description = "CLI for BytePlus Seedance 2.0 video generation"
-readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["byteplus", "seedance", "cli", "video-generation", "ai"]

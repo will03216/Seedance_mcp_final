@@ -18,7 +18,7 @@ All three share the same credentials and the same underlying pipeline — includ
 
 ## Prerequisites
 
-**Python 3.10+** and three keys from the [BytePlus console](https://console.byteplus.com):
+**Python 3.10+**, a local clone of this repo, and three keys from the [BytePlus console](https://console.byteplus.com):
 
 | Key | Where | Used for |
 |---|---|---|
@@ -35,7 +35,9 @@ Lets Claude Desktop, Cursor, and Windsurf generate videos from natural language 
 ### Setup
 
 ```bash
-pip install "seedance-cli[mcp]"
+git clone https://github.com/byteplus/byteplus-seedance-mcp
+cd byteplus-seedance-mcp
+pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
 seedance auth login        # stores credentials in ~/.seedance/credentials
 seedance skill install     # patches Claude Desktop + Claude Code configs automatically
 # Restart your AI client
@@ -134,7 +136,9 @@ Full-featured terminal interface with live progress output.
 ### Setup
 
 ```bash
-pip install "seedance-cli[mcp]"
+git clone https://github.com/byteplus/byteplus-seedance-mcp
+cd byteplus-seedance-mcp
+pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
 seedance auth login
 ```
 
@@ -230,7 +234,9 @@ Slash commands inside Claude Code, backed by the MCP server.
 ### Setup
 
 ```bash
-pip install "seedance-cli[mcp]"
+git clone https://github.com/byteplus/byteplus-seedance-mcp
+cd byteplus-seedance-mcp
+pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
 seedance auth login
 seedance skill install        # copies skill file + patches Claude Code settings
 # Restart Claude Code
@@ -316,7 +322,7 @@ while True:
     time.sleep(10)
 ```
 
-Install: `pip install seedance-sdk` (zero runtime dependencies — uses stdlib urllib only).
+Install: `pip install packages/seedance-sdk` (from repo root; zero runtime dependencies — uses stdlib urllib only).
 
 ---
 
