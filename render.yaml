@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: byteplus-seedance-mcp
+    runtime: docker
+    dockerfilePath: packages/seedance-mcp/docker/Dockerfile
+    dockerContext: .
+    branch: add_cli_and_skill
+    envVars:
+      - key: MCP_TRANSPORT
+        value: sse
+      - key: ARK_API_KEY
+        sync: false
+      - key: ARK_AK
+        sync: false
+      - key: ARK_SK
+        sync: false
+      - key: MCP_AUTH_TOKEN
+        sync: false
