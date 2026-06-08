@@ -2,8 +2,7 @@ services:
   - type: web
     name: byteplus-seedance-mcp
     runtime: docker
-    dockerfilePath: packages/seedance-mcp/docker/Dockerfile
-    dockerContext: .
+    dockerfilePath: ./Dockerfile
     branch: add_cli_and_skill
     envVars:
       - key: MCP_TRANSPORT
