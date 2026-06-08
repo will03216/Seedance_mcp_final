@@ -35,9 +35,9 @@ Lets Claude Desktop, Cursor, and Windsurf generate videos from natural language 
 ### Setup
 
 ```bash
-git clone https://github.com/byteplus/byteplus-seedance-mcp
+git clone https://github.com/mittulmadaan/byteplus-seedance-mcp
 cd byteplus-seedance-mcp
-pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
+pip install packages/seedance-sdk packages/seedance-mcp -e packages/seedance-cli
 seedance auth login        # stores credentials in ~/.seedance/credentials
 seedance skill install     # patches Claude Desktop + Claude Code configs automatically
 # Restart your AI client
@@ -64,6 +64,11 @@ Set credentials via environment variables before launching your client.
 
 ### Hosted / Docker
 
+> **Note:** The `byteplus/seedance-mcp` image will be available on Docker Hub after the first release. Until then, build it locally:
+> ```bash
+> docker build -f packages/seedance-mcp/docker/Dockerfile -t seedance-mcp .
+> ```
+
 ```bash
 docker run -p 8000:8000 \
   -e MCP_TRANSPORT=sse \
@@ -74,7 +79,9 @@ docker run -p 8000:8000 \
   byteplus/seedance-mcp
 ```
 
-Your BytePlus credentials stay server-side. Customers connect using `MCP_AUTH_TOKEN` only.
+Your BytePlus credentials stay server-side. Clients connect using `MCP_AUTH_TOKEN` only.
+
+Point your MCP client at `http://your-host:8000/mcp` (streamable HTTP transport). Use `Authorization: Bearer <MCP_AUTH_TOKEN>` if a token is set.
 
 ### How to use
 
@@ -136,9 +143,9 @@ Full-featured terminal interface with live progress output.
 ### Setup
 
 ```bash
-git clone https://github.com/byteplus/byteplus-seedance-mcp
+git clone https://github.com/mittulmadaan/byteplus-seedance-mcp
 cd byteplus-seedance-mcp
-pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
+pip install packages/seedance-sdk packages/seedance-mcp -e packages/seedance-cli
 seedance auth login
 ```
 
@@ -207,7 +214,7 @@ seedance auth logout          # remove stored credentials
 # Tasks
 seedance status  <task_id>    # check status once
 seedance watch   <task_id>    # stream until done
-seedance list    [--status succeeded|running|failed]
+seedance list    [--status succeeded|running|failed] [--limit 20]
 seedance cancel  <task_id>
 
 # Asset library (manual flow — auto flow is built into seedance generate)
@@ -234,9 +241,9 @@ Slash commands inside Claude Code, backed by the MCP server.
 ### Setup
 
 ```bash
-git clone https://github.com/byteplus/byteplus-seedance-mcp
+git clone https://github.com/mittulmadaan/byteplus-seedance-mcp
 cd byteplus-seedance-mcp
-pip install packages/seedance-sdk packages/seedance-mcp packages/seedance-cli
+pip install packages/seedance-sdk packages/seedance-mcp -e packages/seedance-cli
 seedance auth login
 seedance skill install        # copies skill file + patches Claude Code settings
 # Restart Claude Code

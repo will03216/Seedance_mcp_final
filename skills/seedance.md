@@ -10,10 +10,12 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 
 ## Prerequisites
 
-Install and configure before first use:
+Install and configure before first use (run from the repo root):
 
 ```bash
-pip install "seedance-cli[mcp]"
+git clone https://github.com/mittulmadaan/byteplus-seedance-mcp
+cd byteplus-seedance-mcp
+pip install packages/seedance-sdk packages/seedance-mcp -e packages/seedance-cli
 seedance auth login        # stores credentials in ~/.seedance/credentials
 seedance skill install     # wires up MCP server into Claude Code & Claude Desktop
 ```
