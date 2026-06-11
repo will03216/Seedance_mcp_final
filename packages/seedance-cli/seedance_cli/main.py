@@ -3,6 +3,8 @@
 Usage:
     seedance auth login
     seedance generate --prompt "..." --image "https://..." --watch
+    seedance upscale <video_url> --resolution 1080p --watch
+    seedance upscale-status <task_id>
     seedance status <task_id>
     seedance watch <task_id>
     seedance list
@@ -18,7 +20,7 @@ from __future__ import annotations
 
 import typer
 
-from .commands import auth, assets, generate, models, skill, tasks
+from .commands import auth, assets, generate, models, skill, tasks, upscale
 
 app = typer.Typer(
     name="seedance",
@@ -40,6 +42,8 @@ app.command("status", help="Check the status of a task.")(tasks.status)
 app.command("watch",  help="Stream live progress for a task.")(tasks.watch)
 app.command("list",   help="List recent tasks.")(tasks.list_tasks)
 app.command("cancel", help="Cancel a running task.")(tasks.cancel)
+app.command("upscale", help="Upscale/enhance an existing video (AI MediaKit).")(upscale.upscale)
+app.command("upscale-status", help="Check an upscale task's status.")(upscale.upscale_status)
 
 
 @app.command("ping")
@@ -62,9 +66,10 @@ def ping(
     ok(f"Connected  (SDK v{result['version']})")
     creds = result.get("credentials", {})
     for key, label in [
-        ("api_key", "ARK_API_KEY"),
-        ("ak",      "ARK_AK    "),
-        ("sk",      "ARK_SK    "),
+        ("api_key",  "ARK_API_KEY     "),
+        ("ak",       "ARK_AK          "),
+        ("sk",       "ARK_SK          "),
+        ("mediakit", "MEDIAKIT_API_KEY"),
     ]:
         mark = "[success]✔[/success]" if creds.get(key) else "[error]✖[/error]"
         info(f"{mark}  {label}  {'configured' if creds.get(key) else 'missing'}")

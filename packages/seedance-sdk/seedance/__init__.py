@@ -2,7 +2,7 @@
 from .client import SeedanceClient
 from .config import __version__
 from .exceptions import APIError, AssetError, AuthError, SeedanceError, ValidationError
-from .types import AssetGroupResult, AssetResult, GenerateResult, TaskResult
+from .types import AssetGroupResult, AssetResult, GenerateResult, TaskResult, UpscaleResult
 
 __all__ = [
     "SeedanceClient",
@@ -18,4 +18,5 @@ __all__ = [
     "GenerateResult",
     "AssetGroupResult",
     "AssetResult",
+    "UpscaleResult",
 ]

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from seedance.types import GenerateResult, TaskResult
+from seedance.types import GenerateResult, TaskResult, UpscaleResult
 from seedance_cli.main import app
 
 runner = CliRunner()
@@ -17,6 +17,7 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("ARK_API_KEY", "test-key")
     monkeypatch.setenv("ARK_AK", "test-ak")
     monkeypatch.setenv("ARK_SK", "test-sk")
+    monkeypatch.setenv("MEDIAKIT_API_KEY", "test-mediakit-key")
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +41,35 @@ def test_generate_t2v_prints_task_id():
 def test_generate_missing_prompt_fails():
     result = runner.invoke(app, ["generate"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# upscale
+# ---------------------------------------------------------------------------
+
+def test_upscale_prints_task_id():
+    mock_result = UpscaleResult(task_id="amk-abc", status="submitted")
+    with patch("seedance_cli.commands.upscale.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_enhance.return_value = mock_result
+        result = runner.invoke(app, ["upscale", "https://example.com/v.mp4", "--resolution", "1080p"])
+    assert result.exit_code == 0
+    assert "amk-abc" in result.output
+
+
+def test_upscale_missing_url_fails():
+    result = runner.invoke(app, ["upscale"])
+    assert result.exit_code != 0
+
+
+def test_upscale_status_completed_shows_url():
+    mock_result = UpscaleResult(
+        task_id="amk-abc", status="completed", video_url="https://cdn.example.com/out.mp4",
+    )
+    with patch("seedance_cli.commands.upscale.SeedanceClient") as MockClient:
+        MockClient.return_value.check_enhance_task.return_value = mock_result
+        result = runner.invoke(app, ["upscale-status", "amk-abc"])
+    assert result.exit_code == 0
+    assert "https://cdn.example.com/out.mp4" in result.output
 
 
 # ---------------------------------------------------------------------------

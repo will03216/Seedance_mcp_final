@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from seedance.types import GenerateResult, TaskResult
+from seedance.types import GenerateResult, TaskResult, UpscaleResult
 
 
 @pytest.fixture(autouse=True)
@@ -13,6 +13,7 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("ARK_API_KEY", "test-key")
     monkeypatch.setenv("ARK_AK", "test-ak")
     monkeypatch.setenv("ARK_SK", "test-sk")
+    monkeypatch.setenv("MEDIAKIT_API_KEY", "test-mediakit-key")
 
 
 def _import_tools():
@@ -83,6 +84,58 @@ def test_error_from_sdk_returns_error_dict():
         result = t2v("test")
     assert result["status"] == "error"
     assert "bad ratio" in result["error"]
+
+
+def test_upscale_video_returns_task_id():
+    from seedance_mcp.server import byteplus_upscale_video
+    mock_result = UpscaleResult(task_id="amk-123", status="submitted")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_enhance.return_value = mock_result
+        result = byteplus_upscale_video("https://example.com/v.mp4", resolution="1080p")
+    assert result["task_id"] == "amk-123"
+    assert result["status"] == "submitted"
+    assert "byteplus_check_upscale_task" in result["message"]
+
+
+def test_upscale_idempotent_hit_message():
+    from seedance_mcp.server import byteplus_upscale_video
+    mock_result = UpscaleResult(task_id="amk-123", status="submitted", idempotent_hit=True)
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_enhance.return_value = mock_result
+        result = byteplus_upscale_video("https://example.com/v.mp4")
+    assert result["idempotent_hit"] is True
+    assert "idempotent" in result["message"].lower()
+
+
+def test_check_upscale_completed_has_video_url():
+    from seedance_mcp.server import byteplus_check_upscale_task
+    mock_result = UpscaleResult(
+        task_id="amk-123", status="completed", video_url="https://cdn/out.mp4",
+    )
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.check_enhance_task.return_value = mock_result
+        result = byteplus_check_upscale_task("amk-123")
+    assert result["video_url"] == "https://cdn/out.mp4"
+    assert "ready" in result["message"].lower()
+
+
+def test_check_upscale_running_has_poll_message():
+    from seedance_mcp.server import byteplus_check_upscale_task
+    mock_result = UpscaleResult(task_id="amk-123", status="running")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.check_enhance_task.return_value = mock_result
+        result = byteplus_check_upscale_task("amk-123")
+    assert "processing" in result["message"].lower()
+
+
+def test_upscale_error_returns_error_dict():
+    from seedance.exceptions import ValidationError
+    from seedance_mcp.server import byteplus_upscale_video
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_enhance.side_effect = ValidationError("bad fps")
+        result = byteplus_upscale_video("https://example.com/v.mp4", fps=999)
+    assert result["status"] == "error"
+    assert "bad fps" in result["error"]
 
 
 def test_ping_returns_ok():

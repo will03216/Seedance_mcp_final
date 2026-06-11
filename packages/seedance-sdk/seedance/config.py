@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 __version__ = "2.0.0"
 
@@ -57,3 +58,24 @@ ASSET_REGION = "ap-southeast-1"
 ASSET_VERSION = "2024-01-01"
 ASSET_POLL_INTERVAL = int(os.getenv("SEEDANCE_ASSET_POLL_INTERVAL", "10"))
 ASSET_POLL_TIMEOUT = int(os.getenv("SEEDANCE_ASSET_POLL_TIMEOUT", "120"))
+
+
+# AI MediaKit video-enhancement API (Bearer auth, separate host + API key)
+# Docs: https://docs.byteplus.com/en/docs/byteplus-vod/ai-mediakit-create-a-video-enhancement-task
+MEDIAKIT_BASE_URL = os.getenv(
+    "SEEDANCE_MEDIAKIT_BASE_URL",
+    "https://mediakit.ap-southeast-1.bytepluses.com/api/v1",
+)
+MEDIAKIT_TOOL_VERSIONS = frozenset({"standard", "professional"})
+MEDIAKIT_SCENES = frozenset({"common", "ugc", "short_series", "aigc", "old_film"})
+MEDIAKIT_RESOLUTIONS = frozenset({"240p", "360p", "480p", "540p", "720p", "1080p", "2k", "4k"})
+MEDIAKIT_BITRATE_LEVELS = frozenset({"low", "medium", "high"})
+MEDIAKIT_RESOLUTION_LIMIT_RANGE = (128, 2160)
+MEDIAKIT_FPS_RANGE = (15, 120)
+MEDIAKIT_CLIENT_TOKEN_MAXLEN = 64
+# In-progress statuses vary across docs (running / processing); terminal is fixed.
+MEDIAKIT_TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed"})
+
+# Local idempotency cache (token -> task_id); TTL matches the server's 24h dedup window.
+MEDIAKIT_CACHE_PATH = Path.home() / ".seedance" / "upscale_cache.json"
+MEDIAKIT_CACHE_TTL = int(os.getenv("SEEDANCE_MEDIAKIT_CACHE_TTL", str(24 * 3600)))

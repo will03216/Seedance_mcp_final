@@ -26,15 +26,22 @@ def login(
     console.print("Credentials are stored in [cyan]~/.seedance/credentials[/cyan] (chmod 600).\n")
     console.print("Find your keys at: [url]https://console.byteplus.com/iam/[/url]\n")
 
-    api_key = Prompt.ask("  ARK_API_KEY (ModelArk bearer token)", password=True)
-    ak      = Prompt.ask("  ARK_AK      (IAM Access Key ID)")
-    sk      = Prompt.ask("  ARK_SK      (IAM Secret Key)", password=True)
+    api_key  = Prompt.ask("  ARK_API_KEY      (ModelArk bearer token)", password=True)
+    ak       = Prompt.ask("  ARK_AK           (IAM Access Key ID)")
+    sk       = Prompt.ask("  ARK_SK           (IAM Secret Key)", password=True)
+    mediakit = Prompt.ask(
+        "  MEDIAKIT_API_KEY (AI MediaKit key for upscaling — optional)",
+        password=True, default="", show_default=False,
+    )
 
     if not api_key or not ak or not sk:
-        err("All three credentials are required. Aborting.")
+        err("ARK_API_KEY, ARK_AK, and ARK_SK are required. Aborting.")
         raise typer.Exit(1)
 
-    write_credentials(api_key.strip(), ak.strip(), sk.strip(), profile=profile)
+    write_credentials(
+        api_key.strip(), ak.strip(), sk.strip(),
+        mediakit_api_key=mediakit.strip(), profile=profile,
+    )
     ok(f"Credentials saved to ~/.seedance/credentials  [profile: {profile}]")
 
     # Quick liveness check
@@ -56,18 +63,25 @@ def check(
     console.print(f"\n[bold]Credential status[/bold]  (profile: [cyan]{profile}[/cyan])\n")
 
     for key, label in [
-        ("api_key", "ARK_API_KEY  (video generation)"),
-        ("ak",      "ARK_AK       (asset library)   "),
-        ("sk",      "ARK_SK       (asset library)   "),
+        ("api_key",  "ARK_API_KEY      (video generation)"),
+        ("ak",       "ARK_AK           (asset library)   "),
+        ("sk",       "ARK_SK           (asset library)   "),
+        ("mediakit", "MEDIAKIT_API_KEY (upscaling, optional)"),
     ]:
         mark = "[success]✔[/success]" if status[key] else "[error]✖[/error]"
         state = "configured" if status[key] else "missing"
         console.print(f"  {mark}  {label}  [dim]{state}[/dim]")
 
-    if all(status.values()):
-        console.print("\n  [success]All credentials are configured.[/success]")
+    # MEDIAKIT_API_KEY is optional — only the three core credentials are required.
+    required = ("api_key", "ak", "sk")
+    if all(status[k] for k in required):
+        console.print("\n  [success]All required credentials are configured.[/success]")
+        if not status["mediakit"]:
+            console.print(
+                "  [dim]MEDIAKIT_API_KEY is unset — needed only for seedance upscale.[/dim]\n"
+            )
     else:
-        missing = [k for k, v in status.items() if not v]
+        missing = [k for k in required if not status[k]]
         console.print(f"\n  [error]Missing:[/error] {', '.join(missing)}")
         console.print("  Run [cyan]seedance auth login[/cyan] to configure.\n")
         raise typer.Exit(1)

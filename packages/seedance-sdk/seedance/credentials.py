@@ -66,6 +66,36 @@ def load_api_key(
     return value
 
 
+def load_mediakit_api_key(
+    explicit: str | None = None,
+    *,
+    profile: str = "default",
+) -> str:
+    """Return the AI MediaKit API key, or raise AuthError.
+
+    This is a *separate* credential from ARK_API_KEY — created in the AI MediaKit
+    console — so there is no fallback to the ModelArk key.
+    """
+    _load_dotenv()
+
+    value = (
+        (explicit or "").strip()
+        or os.getenv("MEDIAKIT_API_KEY", "").strip()
+        or _read_ini(CREDENTIALS_PATH, profile, "mediakit_api_key")
+    )
+
+    if not value:
+        raise AuthError(
+            "MEDIAKIT_API_KEY is not configured.\n"
+            "This is required for video upscaling (AI MediaKit) and is separate from "
+            "ARK_API_KEY. Create one in the AI MediaKit console, then set it via one of:\n"
+            "  export MEDIAKIT_API_KEY=<key>\n"
+            "  seedance auth login\n"
+            "  echo '[default]\\nmediakit_api_key=<key>' >> ~/.seedance/credentials"
+        )
+    return value
+
+
 def load_asset_credentials(
     explicit_ak: str | None = None,
     explicit_sk: str | None = None,
@@ -104,6 +134,7 @@ def write_credentials(
     ak: str,
     sk: str,
     *,
+    mediakit_api_key: str = "",
     profile: str = "default",
 ) -> None:
     """Persist credentials to ~/.seedance/credentials."""
@@ -119,6 +150,8 @@ def write_credentials(
     parser.set(profile, "ark_api_key", api_key)
     parser.set(profile, "ark_ak", ak)
     parser.set(profile, "ark_sk", sk)
+    if mediakit_api_key:
+        parser.set(profile, "mediakit_api_key", mediakit_api_key)
 
     with CREDENTIALS_PATH.open("w") as f:
         parser.write(f)
@@ -158,5 +191,9 @@ def credentials_configured(*, profile: str = "default") -> dict[str, bool]:
         "sk": bool(
             os.getenv("ARK_SK", "").strip()
             or _read_ini(CREDENTIALS_PATH, profile, "ark_sk")
+        ),
+        "mediakit": bool(
+            os.getenv("MEDIAKIT_API_KEY", "").strip()
+            or _read_ini(CREDENTIALS_PATH, profile, "mediakit_api_key")
         ),
     }

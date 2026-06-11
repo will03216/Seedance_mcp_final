@@ -103,6 +103,13 @@ def test_credentials_configured(tmp_path, monkeypatch):
     status = credentials_configured()
     assert not any(status.values())
 
+    # Core creds only — mediakit is a separate, optional credential.
     write_credentials("k", "a", "s")
+    status = credentials_configured()
+    assert status["api_key"] and status["ak"] and status["sk"]
+    assert not status["mediakit"]
+
+    # Writing the mediakit key flips it on.
+    write_credentials("k", "a", "s", mediakit_api_key="m")
     status = credentials_configured()
     assert all(status.values())

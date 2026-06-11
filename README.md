@@ -25,6 +25,7 @@ All three share the same credentials and the same underlying pipeline — includ
 | `ARK_API_KEY` | ModelArk → API Keys | Video generation |
 | `ARK_AK` | IAM → Access Keys | Asset library (portrait / sensitive images) |
 | `ARK_SK` | IAM → Access Keys | Asset library |
+| `MEDIAKIT_API_KEY` | AI MediaKit → Settings → API Keys | Video upscaling *(optional)* |
 
 ---
 
@@ -116,6 +117,18 @@ seedance_check_task(task_id="cgt-xxxx")
 → { status: "succeeded", video_url: "https://..." }
 ```
 
+To **upscale an existing video** (e.g. a generated output URL) use the standalone AI MediaKit
+tool — it is independent of `seedance_generate` and needs `MEDIAKIT_API_KEY`:
+
+```
+byteplus_upscale_video(video_url="https://.../output.mp4", tool_version="standard", resolution="1080p")
+→ { task_id: "amk-tool-enhance-video-xxxx", status: "submitted" }
+
+# Poll every 10–15s; idempotent — identical params reuse the same task for 24h
+byteplus_check_upscale_task(task_id="amk-tool-enhance-video-xxxx")
+→ { status: "completed", video_url: "https://...", resolution: "1080p", fps: 60 }
+```
+
 > Never use `seedance_auto_generate` — it blocks for minutes and hits MCP timeout errors.
 
 ### Available tools
@@ -126,6 +139,8 @@ seedance_check_task(task_id="cgt-xxxx")
 | `seedance_check_task` | Poll for status and `video_url`. |
 | `seedance_text_to_video` | Fine-grained T2V — skips asset upload. |
 | `seedance_image_to_video` | Fine-grained I2V with multiple refs — skips asset upload. |
+| `byteplus_upscale_video` | Upscale/enhance an **existing** video (AI MediaKit, up to 4K). Needs `MEDIAKIT_API_KEY`. |
+| `byteplus_check_upscale_task` | Poll an upscale task for status and enhanced `video_url`. |
 | `seedance_list_tasks` | Browse generation history. |
 | `seedance_cancel_task` | Cancel a queued or running job. |
 | `seedance_create_asset_group` | Create an asset group (manual flow). |

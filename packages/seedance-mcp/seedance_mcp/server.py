@@ -7,6 +7,7 @@ Environment variables (all optional if ~/.seedance/credentials is configured):
     ARK_API_KEY      BytePlus ModelArk bearer token
     ARK_AK           IAM Access Key ID  (required for asset tools)
     ARK_SK           IAM Secret Key     (required for asset tools)
+    MEDIAKIT_API_KEY AI MediaKit bearer token (required for upscale tools)
     MCP_TRANSPORT    "stdio" (default) | "sse"
     MCP_AUTH_TOKEN   Bearer token for SSE transport auth (optional)
     PORT             HTTP port for SSE transport (default: 8000)
@@ -48,6 +49,8 @@ mcp = FastMCP(
         "until status == 'succeeded'. "
         "Use seedance_text_to_video or seedance_image_to_video only when you need fine-grained "
         "control (e.g. multiple reference images, explicit asset:// refs). "
+        "To upscale/enhance an EXISTING video (e.g. a generated output URL) up to 4K, use "
+        "byteplus_upscale_video, then poll byteplus_check_upscale_task until status == 'completed'. "
         "Do NOT use seedance_auto_generate — it blocks for minutes and causes MCP timeout errors."
     ),
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -317,6 +320,116 @@ def seedance_cancel_task(task_id: str) -> dict:
         return _client().cancel_task(task_id)
     except SeedanceError as exc:
         return _err(exc)
+
+
+# ---------------------------------------------------------------------------
+# Video upscaling / enhancement (AI MediaKit)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def byteplus_upscale_video(
+    video_url: str,
+    tool_version: str = "standard",
+    scene: str = "",
+    resolution: str = "",
+    resolution_limit: int = 0,
+    bitrate_level: str = "",
+    fps: float = 0,
+    client_token: str = "",
+    force_new: bool = False,
+) -> dict:
+    """Upscale / enhance an EXISTING video via BytePlus AI MediaKit.
+
+    Standalone tool — independent of seedance_generate. Takes a publicly accessible
+    video URL (e.g. a Seedance output URL) and runs AI enhancement: denoising, color
+    enhancement, artifact removal, and super-resolution up to 4K. Asynchronous:
+    returns a task_id; poll byteplus_check_upscale_task until status == 'completed'.
+
+    Requires MEDIAKIT_API_KEY (separate from ARK_API_KEY; created in the AI MediaKit console).
+
+    Idempotency: identical parameters reuse the same task for 24h (deterministic
+    client_token + local cache). To force a fresh task on identical input, set
+    force_new=True or pass a distinct client_token.
+
+    Args:
+        video_url: Publicly accessible HTTP/HTTPS URL of the source video
+                   (mp4/flv/ts/avi/mov/wmv/mkv; input up to 2K, ≤10 GB recommended).
+        tool_version: 'standard' (default, ~10 algorithms, fast) or 'professional'
+                      (~30 algorithms, cinema-grade 4K).
+        scene: Only for tool_version='standard'. One of:
+               common | ugc | short_series | aigc | old_film
+        resolution: Target resolution. One of:
+                    240p | 360p | 480p | 540p | 720p | 1080p | 2k | 4k
+                    (mutually exclusive with resolution_limit).
+        resolution_limit: Short-side pixel cap [128, 2160], preserving aspect ratio
+                          (mutually exclusive with resolution).
+        bitrate_level: low | medium | high (default medium; may be ignored if fps is set).
+        fps: Target frame rate [15, 120]. Omitted (0) keeps the source frame rate.
+        client_token: Optional explicit idempotency token (≤64 printable ASCII).
+        force_new: Force a brand-new task even for identical parameters.
+
+    Returns:
+        dict with task_id and status='submitted'. Poll byteplus_check_upscale_task.
+    """
+    try:
+        result = _client().submit_video_enhance(
+            video_url,
+            tool_version=tool_version,
+            scene=scene or None,
+            resolution=resolution or None,
+            resolution_limit=resolution_limit or None,
+            bitrate_level=bitrate_level or None,
+            fps=fps or None,
+            client_token=client_token or None,
+            force_new=force_new,
+        )
+    except SeedanceError as exc:
+        return _err(exc)
+
+    out = result.to_dict()
+    if result.idempotent_hit:
+        out["message"] = (
+            f"Idempotent hit — reused existing task '{result.task_id}'. "
+            f"Poll byteplus_check_upscale_task(task_id='{result.task_id}')."
+        )
+    else:
+        out["message"] = (
+            f"Upscale task submitted. Poll with "
+            f"byteplus_check_upscale_task(task_id='{result.task_id}') "
+            "every 10–15 seconds until status == 'completed'."
+        )
+    return out
+
+
+@mcp.tool()
+def byteplus_check_upscale_task(task_id: str) -> dict:
+    """Check the status of an AI MediaKit video upscale/enhancement task.
+
+    Poll every 10–15 seconds after submitting. When status == 'completed' the
+    response includes video_url (valid for 24 hours — download promptly).
+
+    Args:
+        task_id: The task ID returned by byteplus_upscale_video.
+
+    Returns:
+        dict with status (running | processing | completed | failed) and, when
+        completed, video_url plus duration/resolution/fps/tool_version.
+    """
+    try:
+        result = _client().check_enhance_task(task_id)
+    except SeedanceError as exc:
+        return _err(exc)
+
+    out = result.to_dict()
+    if result.video_url:
+        out["message"] = "Enhanced video is ready. Download the video_url within 24 hours."
+    elif result.status == "failed":
+        out["message"] = f"Upscale task failed: {result.error or 'unknown error'}."
+    else:
+        out["message"] = (
+            f"Still processing (status='{result.status}'). Poll again in 10–15 seconds."
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -11,10 +11,13 @@ from .config import (
     MODELS, PAGE_SIZE_MAX, POLL_TIMEOUT, SUBMIT_TIMEOUT, TERMINAL_STATUSES,
     __version__, model_caps,
 )
-from .credentials import load_api_key, load_asset_credentials
+from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
 from .exceptions import ValidationError
 from .http import extract_nested, extract_video_url, request_with_retry
-from .types import AssetGroupResult, AssetResult, GenerateResult, TaskResult
+from .mediakit import MediaKitClient
+from .types import (
+    AssetGroupResult, AssetResult, GenerateResult, TaskResult, UpscaleResult,
+)
 
 logger = logging.getLogger("seedance")
 
@@ -37,11 +40,13 @@ class SeedanceClient:
         ak: str | None = None,
         sk: str | None = None,
         *,
+        mediakit_api_key: str | None = None,
         profile: str = "default",
     ) -> None:
         self._api_key_override = api_key
         self._ak_override = ak
         self._sk_override = sk
+        self._mediakit_key_override = mediakit_api_key
         self._profile = profile
 
     # ------------------------------------------------------------------
@@ -54,6 +59,9 @@ class SeedanceClient:
     def _asset_client(self) -> AssetClient:
         ak, sk = load_asset_credentials(self._ak_override, self._sk_override, profile=self._profile)
         return AssetClient(ak, sk)
+
+    def _mediakit_client(self) -> MediaKitClient:
+        return MediaKitClient(load_mediakit_api_key(self._mediakit_key_override, profile=self._profile))
 
     def _auth_headers(self) -> dict[str, str]:
         return {
@@ -457,6 +465,73 @@ class SeedanceClient:
             correlation_id=cid,
         )
         return {"task_id": task_id, "cancelled": True, **self._maybe_raw(resp)}
+
+    # ------------------------------------------------------------------
+    # Video upscaling / enhancement (AI MediaKit)
+    # ------------------------------------------------------------------
+
+    def submit_video_enhance(
+        self,
+        video_url: str,
+        *,
+        tool_version: str = "standard",
+        scene: str | None = None,
+        resolution: str | None = None,
+        resolution_limit: int | None = None,
+        bitrate_level: str | None = None,
+        fps: float | None = None,
+        client_token: str | None = None,
+        callback_args: str | None = None,
+        force_new: bool = False,
+    ) -> UpscaleResult:
+        """Submit a video-enhancement (upscale) task. Returns immediately with task_id.
+
+        Idempotent by default: identical parameters reuse the same task within 24h
+        (via a deterministic client_token + local cache). Pass force_new=True or a
+        distinct client_token to force a brand-new task.
+        """
+        cid = self._cid()
+        resp = self._mediakit_client().submit_enhance(
+            video_url,
+            tool_version=tool_version,
+            scene=scene,
+            resolution=resolution,
+            resolution_limit=resolution_limit,
+            bitrate_level=bitrate_level,
+            fps=fps,
+            client_token=client_token,
+            callback_args=callback_args,
+            force_new=force_new,
+            correlation_id=cid,
+        )
+        return UpscaleResult(
+            task_id=resp.get("task_id", ""),
+            status="submitted",
+            request_id=resp.get("request_id", ""),
+            idempotent_hit=bool(resp.get("idempotent_hit")),
+            raw=resp if INCLUDE_RAW else {},
+        )
+
+    def check_enhance_task(self, task_id: str) -> UpscaleResult:
+        """Fetch current status of an upscale task. Includes video_url when completed."""
+        if not task_id:
+            raise ValidationError("task_id is required.")
+        cid = self._cid()
+        resp = self._mediakit_client().get_task(task_id, correlation_id=cid)
+        status = resp.get("status", "unknown")
+        result = resp.get("result") or {}
+        return UpscaleResult(
+            task_id=resp.get("task_id", task_id),
+            status=status,
+            video_url=result.get("video_url") or extract_video_url(resp) or None,
+            error=resp.get("error") if status == "failed" else None,
+            request_id=resp.get("request_id", ""),
+            duration=result.get("duration"),
+            resolution=result.get("resolution"),
+            fps=result.get("fps"),
+            tool_version=result.get("tool_version"),
+            raw=resp if INCLUDE_RAW else {},
+        )
 
     # ------------------------------------------------------------------
     # Asset library
