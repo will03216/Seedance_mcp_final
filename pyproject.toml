@@ -1,0 +1,27 @@
+[tool.uv.workspace]
+members = [
+    "packages/seedance-sdk",
+    "packages/seedance-mcp",
+    "packages/seedance-cli",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.isort]
+known-first-party = ["seedance", "seedance_mcp", "seedance_cli"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/seedance-sdk/tests",
+    "packages/seedance-mcp/tests",
+    "packages/seedance-cli/tests",
+]

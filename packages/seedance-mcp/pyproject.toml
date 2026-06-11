@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "seedance-mcp"
+version = "2.0.0"
+description = "MCP server exposing BytePlus Seedance 2.0 video generation to AI clients"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["byteplus", "seedance", "mcp", "video-generation", "ai"]
+dependencies = [
+    "seedance-sdk>=2.0.0",
+    "mcp>=1.0.0",
+    "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "mypy>=1.8.0",
+    "ruff>=0.3.0",
+]
+
+[project.urls]
+Repository = "https://github.com/byteplus/byteplus-seedance"
+
+[tool.hatch.build.targets.wheel]
+packages = ["seedance_mcp"]

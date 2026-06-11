@@ -1,8 +1,8 @@
 services:
   seedance-mcp:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../../..
+      dockerfile: packages/seedance-mcp/docker/Dockerfile
     ports:
       - "8000:8000"
     environment:
