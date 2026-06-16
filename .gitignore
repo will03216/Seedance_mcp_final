@@ -13,6 +13,7 @@
 *.key
 ark_api_key.txt
 ~/.seedance/
+.claude/
 
 # Python
 __pycache__/

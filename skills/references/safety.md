@@ -60,6 +60,28 @@ Replace with:
 - timing
 - physical consequence
 
+## Portrait / short-drama constraint block
+
+For portrait and character-driven short-drama shots, append a short negative
+constraint at the **end** of the prompt. It measurably reduces face-swapping,
+face-dropping, and jitter. Keep it to one line — do not stack it on product or
+landscape shots where it adds noise.
+
+English:
+
+> Stable face without deformation, clear facial features, normal body
+> proportions, natural and fluid movement, no stiffness, no flicker, no frame
+> stutter.
+
+Chinese:
+
+> 面部稳定不变形，五官清晰，身体比例正常，动作自然流畅，无僵硬、无闪烁、无卡顿。
+
+Use the whole line for a face/full-body short-drama shot; trim to the relevant
+clause (e.g. just `natural, fluid movement, no flicker`) for non-portrait work.
+These are **constraints, not slop** — they express a concrete failure to avoid,
+so the anti-slop pass keeps them.
+
 ## Troubleshooting tree
 
 ### Jitter, blur, or morphing

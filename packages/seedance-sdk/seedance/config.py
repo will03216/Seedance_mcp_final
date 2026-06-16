@@ -19,6 +19,13 @@ INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes"
 TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
 PAGE_SIZE_MAX = 50
 
+# Multi-reference (all-round reference) budgets for Seedance 2.0.
+# The create-task content[] array accepts image / video / audio reference items
+# bound by their `role` field. Limits per the Seedance 2.0 reference docs.
+MAX_REFERENCE_IMAGES = 9
+MAX_REFERENCE_VIDEOS = 3
+MAX_REFERENCE_AUDIO = 3
+
 MODELS: dict[str, dict] = {
     "dreamina-seedance-2-0-260128": {
         "label": "Seedance 2.0 Standard",

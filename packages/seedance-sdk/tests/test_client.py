@@ -59,6 +59,68 @@ def test_last_frame_without_first_raises(client):
 
 
 # ---------------------------------------------------------------------------
+# Multi-reference (image / video / audio) content shape
+# ---------------------------------------------------------------------------
+
+def _payload_of(mock):
+    call = mock.call_args
+    return call.kwargs.get("payload") or call[1].get("payload")
+
+
+def test_video_ref_builds_video_url_content(client):
+    with _mock_http({"id": "t-vid", "status": "queued"}) as mock:
+        result = client.submit_image_to_video(
+            "Extend [video1] backward by 5 seconds.",
+            video_urls=["https://example.com/clip.mp4"],
+        )
+    assert result.mode.startswith("R2V")
+    content = _payload_of(mock)["content"]
+    vid = [c for c in content if c["type"] == "video_url"]
+    assert vid == [{"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4"}, "role": "reference_video"}]
+
+
+def test_audio_ref_builds_audio_url_content(client):
+    with _mock_http({"id": "t-aud", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "She [image1] lip-syncs to [audio1].",
+            image_urls=["https://example.com/face.jpg"],
+            audio_urls=["https://example.com/voice.mp3"],
+        )
+    content = _payload_of(mock)["content"]
+    aud = [c for c in content if c["type"] == "audio_url"]
+    assert aud == [{"type": "audio_url", "audio_url": {"url": "https://example.com/voice.mp3"}, "role": "reference_audio"}]
+
+
+def test_video_only_reference_is_valid(client):
+    # A video reference alone satisfies the "at least one reference" rule.
+    with _mock_http({"id": "t-vonly", "status": "queued"}):
+        result = client.submit_image_to_video("test", video_urls=["https://example.com/v.mp4"])
+    assert result.task_id == "t-vonly"
+
+
+def test_too_many_video_refs_raises(client):
+    with pytest.raises(ValidationError, match="Too many video_urls"):
+        client.submit_image_to_video(
+            "test",
+            video_urls=[f"https://example.com/{i}.mp4" for i in range(4)],
+        )
+
+
+def test_too_many_audio_refs_raises(client):
+    with pytest.raises(ValidationError, match="Too many audio_urls"):
+        client.submit_image_to_video(
+            "test",
+            image_urls=["https://example.com/face.jpg"],
+            audio_urls=[f"https://example.com/{i}.mp3" for i in range(4)],
+        )
+
+
+def test_empty_video_ref_entry_raises(client):
+    with pytest.raises(ValidationError, match="video_urls contains an empty entry"):
+        client.submit_image_to_video("test", video_urls=[""])
+
+
+# ---------------------------------------------------------------------------
 # Text-to-video
 # ---------------------------------------------------------------------------
 

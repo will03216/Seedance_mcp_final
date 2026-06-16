@@ -28,9 +28,27 @@ For status checks, call `seedance_check_task(task_id)` on demand. No cron, no ba
 Keep the request simple:
 
 - one hero subject
-- only the references needed for this clip (max 9 images, 3 videos, 3 audio)
+- only the references needed for this clip
 - one camera move
 - one primary style anchor
+
+### Reference limits vs. reference *strategy*
+
+The hard ceiling is **9 images, 3 videos, 3 audio** (≤12 items total; video and
+audio are URL-only). But **do not approach the ceiling** — too many references
+dilute priority and the model struggles to decide what matters. A reliable
+short-drama config is **4–5 assets total**, one per function:
+
+| Functional role | Asset | Binds via |
+|-----------------|-------|-----------|
+| Character anchor | 1–2 portrait images (face / full body) | `reference_image` → `[image1]`/`[image2]` |
+| Scene / style | 1 scene image | `reference_image` → `[image2]`/`[image3]` |
+| Camera & rhythm | 1 reference video | `reference_video` → `[video1]` |
+| Pacing / mood | 1 audio clip | `reference_audio` → `[audio1]` |
+
+When a video is used only for camera/motion, say so explicitly (`use [video1]
+for camera and timing only — do not copy its characters or scene`), or the
+model may import its subjects.
 
 ---
 

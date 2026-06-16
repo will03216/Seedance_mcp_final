@@ -1,7 +1,7 @@
 ---
 name: seedance
 description: Generate videos with BytePlus Seedance 2.0 — text-to-video, image-to-video, prompt optimization, shot design, audio/lip-sync, asset management, and task tracking.
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Seedance Video Generation
@@ -21,12 +21,16 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 > **Submit the optimized prompt, never the raw user input.** Show the user the
 > optimized prompt before submission so they can confirm or tweak it.
 >
-> **If references are passed** (`--image`, `--video`, `--audio`),
+> **If references are passed** (`--image`, `--video`, `--audio-ref`),
 > the optimized prompt **MUST tag every reference** as `[image1]`, `[image2]`,
 > `[video1]`, `[audio1]`, etc. (1-indexed, in argument order) next to the
 > entity it represents. Without these tags, Seedance cannot bind references to
 > subjects and falls back to using the first image as a literal first-frame —
 > which is wrong for character / object / style references.
+>
+> (`--audio-ref` passes a **reference audio clip** for lip-sync / beat / pacing.
+> The separate `--audio` flag is a boolean that asks Seedance to *generate* a
+> matching audio track — it is not a reference and is not tagged.)
 >
 > The only opt-out: the user explicitly says "use this prompt as-is" *and* the
 > input already follows the 6-component framework *and* (if refs are passed)
@@ -112,21 +116,46 @@ morning light cuts in, steam rises slowly, camera slowly pushes in
 ```
 /seedance generate <prompt>
   --image <url>          Reference image (auto-uploaded to asset library for portraits)
+  --video <url>          Reference video — motion/camera rhythm, or a clip to extend. Repeatable, max 3. Tag [video1]…
+  --audio-ref <url>      Reference audio — lip-sync / beat / pacing (MP3/WAV). Repeatable, max 3. Tag [audio1]…
   --first-frame <url>    Pin the exact starting frame
   --last-frame <url>     Pin the ending frame (requires --first-frame)
   --ratio 9:16           Aspect ratio: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
   --duration 6           Length in seconds (4–15)
   --resolution 1080p     Quality: 480p | 720p | 1080p
-  --audio                Generate matching audio track
+  --audio                GENERATE a matching audio track (boolean — not a reference)
   --fast                 Use faster/cheaper model variant
   --seed 42              Reproducible results
   --camerafixed          No camera movement (product shots)
 ```
 
+**All-round reference (image + video + audio):**
+```
+/seedance generate the singer [image1] performs on the neon stage, dance timing and
+camera rhythm follow [video1], cuts land on the beats of [audio1]
+  --image https://example.com/singer.jpg
+  --video https://example.com/dance-ref.mp4
+  --audio-ref https://example.com/track.mp3
+```
+
+**Video extension (continue an existing clip):** there is no separate extend
+endpoint — pass the previous output as a `--video` reference and describe the
+continuation. Keep character, scene, and lighting locked.
+```
+/seedance generate extend [video1] backward by 5 seconds; the woman keeps walking
+down the same corridor, character, background, and lighting unchanged
+  --video https://.../previous-output.mp4
+```
+For dramas longer than ~15s, prefer **segmented splicing**: generate each
+10–13s beat independently with the *same* reference set + template, then splice
+in an editor. Use extension for single continuous takes (dialogue, one-path
+movement); use splicing for scene changes and fast action.
+
 The MCP tool `seedance_generate` handles everything automatically:
 1. Creates an asset group and uploads any portrait image to the BytePlus asset library
-2. Submits the generation job
-3. Returns `task_id` — poll `seedance_check_task` every 10–15 seconds until `status == "succeeded"`
+2. Passes any `--video` / `--audio-ref` references through (URL-only, not uploaded) — bound by content role and matched to `[video1]` / `[audio1]` tags
+3. Submits the generation job
+4. Returns `task_id` — poll `seedance_check_task` every 10–15 seconds until `status == "succeeded"`
 
 ---
 

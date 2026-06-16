@@ -38,6 +38,38 @@ def test_text_to_video_returns_task_id():
     assert "message" in result
 
 
+def test_generate_forwards_video_and_audio_refs():
+    *_, = _import_tools()
+    from seedance_mcp.server import seedance_generate
+    mock_result = GenerateResult(task_id="task-r2v", status="queued", mode="R2V-Reference", steps=[])
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        result = seedance_generate(
+            "Extend [video1], sync to [audio1].",
+            video_urls=["https://example.com/clip.mp4"],
+            audio_urls=["https://example.com/voice.mp3"],
+        )
+    assert result["task_id"] == "task-r2v"
+    kwargs = MockClient.return_value.generate.call_args.kwargs
+    assert kwargs["video_urls"] == ["https://example.com/clip.mp4"]
+    assert kwargs["audio_urls"] == ["https://example.com/voice.mp3"]
+
+
+def test_image_to_video_forwards_video_audio_refs():
+    from seedance_mcp.server import seedance_image_to_video
+    mock_result = TaskResult(task_id="task-i", status="queued", mode="R2V-Reference(img=1,vid=1,aud=0)")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_image_to_video.return_value = mock_result
+        seedance_image_to_video(
+            "test",
+            image_urls=["https://example.com/face.jpg"],
+            video_urls=["https://example.com/clip.mp4"],
+        )
+    kwargs = MockClient.return_value.submit_image_to_video.call_args.kwargs
+    assert kwargs["video_urls"] == ["https://example.com/clip.mp4"]
+    assert kwargs["audio_urls"] is None
+
+
 def test_check_task_succeeded_has_video_url():
     _, check, *_ = _import_tools()
     mock_result = TaskResult(

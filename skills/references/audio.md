@@ -17,6 +17,12 @@ If exact audio playback is not required, describe sound in natural language:
 Use `[audio1]` when rhythm or lip-sync matters — tag it inline next to the
 speaking subject (e.g. `She [image1] speaks in sync with [audio1].`).
 
+**Passing an audio reference:** supply it via `--audio-ref <url>` (CLI) /
+`audio_urls=[...]` (MCP/SDK). It is URL-only (MP3/WAV, not auto-uploaded), max
+3 clips, and binds by content role as `[audio1]`, `[audio2]`, … in argument
+order. This is distinct from `--audio` / `generate_audio`, which is a boolean
+asking Seedance to *synthesize* a matching track (no reference, no tag).
+
 ## Hard constraints from repo guidance
 
 Treat these as working assumptions and re-check in the UI if needed:

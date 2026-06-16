@@ -126,6 +126,8 @@ def seedance_image_to_video(
     image_urls: list[str] | None = None,
     first_frame_url: str = "",
     last_frame_url: str = "",
+    video_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
     ratio: str = "16:9",
     duration: int = 5,
     resolution: str = "720p",
@@ -134,22 +136,33 @@ def seedance_image_to_video(
     seed: int | None = None,
     camerafixed: bool = False,
 ) -> dict:
-    """Submit an image-to-video generation job on Seedance 2.0.
+    """Submit a reference-to-video generation job on Seedance 2.0.
 
-    Supports three image input modes:
-      1. image_urls: character/object reference images (tag as [image1], [image2] in prompt)
+    Supports the full all-round-reference set, bound by content[] role:
+      1. image_urls: character/object/scene reference images (tag as [image1], [image2])
       2. first_frame_url: pin the exact starting frame
       3. first_frame_url + last_frame_url: transition between two images
+      4. video_urls: reference videos for motion/camera rhythm (tag as [video1], ...)
+      5. audio_urls: reference audio for lip-sync / beat / pacing (tag as [audio1], ...)
+
+    Video extension: pass the previous clip as a video_url and describe the
+    continuation in the prompt (e.g. "extend [video1] backward by N seconds,
+    keeping character, background, and lighting consistent").
+
+    Limits: ≤9 images, ≤3 videos, ≤3 audio. Video and audio references are
+    URL-only (not auto-uploaded to the asset library).
 
     Args:
-        prompt: Motion and camera description. Tag reference images as [image1], etc.
+        prompt: Motion and camera description. Tag references as [image1], [video1], [audio1], etc.
         image_urls: Reference image URLs (HTTPS or asset://). Matched to [image1], [image2], ...
         first_frame_url: URL of the exact frame the video must START from.
         last_frame_url: URL of the exact frame the video must END at (requires first_frame_url).
+        video_urls: Reference video URLs. Matched to [video1], [video2], ... (max 3).
+        audio_urls: Reference audio URLs (MP3/WAV). Matched to [audio1], ... (max 3).
         ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
         duration: Video length in seconds (4–15).
         resolution: Output quality. One of: 480p | 720p | 1080p
-        generate_audio: Whether to generate a matching audio track.
+        generate_audio: Whether to generate a matching audio track (separate from audio_urls).
         fast_mode: Use the faster/cheaper model variant.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no movement.
@@ -163,6 +176,8 @@ def seedance_image_to_video(
             image_urls=image_urls,
             first_frame_url=first_frame_url,
             last_frame_url=last_frame_url,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
             ratio=ratio,
             duration=duration,
             resolution=resolution,
@@ -189,6 +204,8 @@ def seedance_generate(
     image_url: str = "",
     first_frame_url: str = "",
     last_frame_url: str = "",
+    video_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
     ratio: str = "16:9",
     duration: int = 5,
     resolution: str = "720p",
@@ -204,18 +221,21 @@ def seedance_generate(
     Handles the full pipeline in one call:
       1. If image_url is a plain HTTPS URL: auto-creates asset group + uploads image.
       2. If image_url is already an asset:// ref: skips upload.
-      3. If no image: submits text-to-video directly.
-      4. Returns task_id — poll seedance_check_task until succeeded.
+      3. video_urls / audio_urls are passed through as references (URL-only, not uploaded).
+      4. If no references: submits text-to-video directly.
+      5. Returns task_id — poll seedance_check_task until succeeded.
 
     Args:
-        prompt: Scene/motion description. Tag the reference image as [image1].
+        prompt: Scene/motion description. Tag references as [image1], [video1], [audio1].
         image_url: Reference image — plain HTTPS URL (auto-uploaded) or existing asset:// ref.
         first_frame_url: Pin the exact starting frame (HTTPS or asset://).
         last_frame_url: Pin the exact ending frame (requires first_frame_url).
+        video_urls: Reference video URLs (motion/camera rhythm, or a clip to extend). Max 3.
+        audio_urls: Reference audio URLs (lip-sync / beat / pacing, MP3/WAV). Max 3.
         ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
         duration: Video length in seconds (4–15).
         resolution: Output quality. One of: 480p | 720p | 1080p
-        generate_audio: Whether to generate a matching audio track.
+        generate_audio: Whether to generate a matching audio track (separate from audio_urls).
         fast_mode: Use the faster/cheaper model variant.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no panning or zooming.
@@ -230,6 +250,8 @@ def seedance_generate(
             image_url=image_url,
             first_frame_url=first_frame_url,
             last_frame_url=last_frame_url,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
             ratio=ratio,
             duration=duration,
             resolution=resolution,

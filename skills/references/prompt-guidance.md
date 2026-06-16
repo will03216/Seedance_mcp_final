@@ -80,6 +80,17 @@ prompt **MUST** tag each reference inline so Seedance knows which asset binds
 to which subject. The tag goes immediately after the noun phrase the reference
 describes.
 
+> **How binding actually works.** The hard binding is **structural**: each
+> reference becomes a `content[]` item carrying a `role`
+> (`reference_image` / `reference_video` / `reference_audio`, plus
+> `first_frame` / `last_frame`) in **argument order**. The inline `[imageN]`
+> tag is the *comprehension aid* that tells the model which tagged entity maps
+> to the N-th reference of that type. The repo convention is `[imageN]`;
+> BytePlus's own prompt guide writes the same tags as `@ImageN`. Either reads
+> fine — **pick one style per prompt** and keep the argument order aligned with
+> the tag numbers. Video references go in `video_urls=` (→ `[video1]`), audio
+> in `audio_urls=` (→ `[audio1]`); limits are **9 images, 3 videos, 3 audio**.
+
 ### The tag convention
 
 | Asset arg | Tag for index 0 | Tag for index 1 | … |
@@ -245,6 +256,10 @@ Verify ALL before submitting:
 - [ ] **Portraits in refs:** uploaded as `asset://` — handled automatically
       by `seedance_generate`, or manually via `seedance_upload_asset`
       (see [`assets.md`](assets.md))
+- [ ] **Portrait / short-drama shot:** the one-line stability constraint block
+      is appended (see [`safety.md`](safety.md#portrait--short-drama-constraint-block));
+      emotion is externalized as physical cues, not adjectives
+      (see [`shot-design.md`](shot-design.md#externalize-emotion-as-physical-signals))
 - [ ] **Reference tags present:** every reference URL is tagged inline as
       `[imageN]` / `[videoN]` / `[audioN]` next to the entity it represents.
       With 2+ references this is mandatory; with 1 reference, choose
@@ -280,18 +295,41 @@ only. Single image with no tag = first-frame default. Add `[image1]` only if
 you want it treated as a styled subject reference instead of a literal first
 frame.)*
 
-### R2V — motion transfer
+### R2V — motion transfer (supported)
+
+Pass the reference clip in `video_urls=` (→ `[video1]`). The model transfers
+motion/camera rhythm; it does **not** copy the source clip's characters or
+scene unless you tell it to.
 
 > Transfer the dance timing and camera rhythm from [video1] to the singer
 > [image1]. Stage neon-lit, cuts aligned to the beat. One orbit move per
-> chorus, otherwise locked-off.
+> chorus, otherwise locked-off. Use [video1] only for camera and timing — do
+> not replicate its characters or background.
 
-### V2V — face swap
+### Video extension — continue an existing clip (via reference, not an endpoint)
 
-> Replace the face of the woman in [video1] with the face from the portrait
-> [image1]. Preserve original body motion, background, clothing, and lighting
-> from [video1]. Match skin tone and hairline blending. Static camera carried
-> over from source.
+There is no extend endpoint. Pass the prior output as `video_urls=` (→
+`[video1]`) and describe the continuation, locking continuity:
+
+> Extend [video1] backward by 6 seconds. The man keeps walking down the same
+> corridor at the same pace; character appearance, clothing, background, and
+> lighting stay fully consistent with [video1]. Slow tracking follow continues.
+
+Best for single continuous takes (dialogue, slow emotional build, one-path
+movement). For scene changes or fast action across a long short-drama, prefer
+**segmented splicing**: generate each 10–13s beat independently with the *same*
+reference set + template, then splice in an editor.
+
+### V2V — face swap / video inpainting (NOT a create-task capability)
+
+> ⚠️ The ModelArk create-task API has **no video-edit / inpaint / face-swap
+> endpoint**. You cannot "replace the face in [video1]" or "change the jacket
+> from 0–10s" as a true edit — `reference_video` is a *generation* reference,
+> not an editable source. Approximate face-swap by **regenerating** with the
+> portrait as `[image1]` and the source clip as `[video1]` for motion only
+> (identity will be close, not pixel-locked), or do precise replacement /
+> prop-swap / artifact repair in post-production. Do not promise frame-accurate
+> inpainting in a prompt.
 
 ### Multi-beat timeline (preserve when user provides one)
 

@@ -32,6 +32,36 @@ Describe intent and consequence, not animation keyframes.
 
 For complex action, use a reference video first. Text-only action should stay low-density.
 
+### Prefer slow, continuous, small movements
+
+The model is most stable on low-amplitude motion. Favor `walks slowly`,
+`gently raises a hand`, `slightly lowers the head`, `smoothly sits down`.
+Avoid high-intensity verbs — `sprints`, `big jump`, `violent roll`, `rapid
+spin` — which drive jitter and limb deformation. If a big action is essential,
+transfer it from a `[video1]` reference instead of describing it in text.
+
+### Write the transition between actions
+
+Give the model the *hinge* between two moves so it can keep continuity:
+
+- `using the momentum from the turn, she raises the cup`
+- `naturally transitioning from a pause into a slow step forward`
+- `the bag swings once as she stops, then settles`
+
+### Externalize emotion as physical signals
+
+Replace abstract emotion words with observable body cues — the model renders
+the cue, not the adjective.
+
+| Don't write | Write instead |
+|-------------|---------------|
+| `very sad` | `lips trembling, eyes gradually reddening` |
+| `extremely angry` | `jaw tightens, nostrils flare, fist clenches` |
+| `nervous` | `swallows hard, fingers fidget at the hem` |
+| `relieved` | `shoulders drop, a slow exhale, faint smile` |
+
+This is the single highest-leverage technique for character/short-drama shots.
+
 ## Lighting
 
 Always name a source.
