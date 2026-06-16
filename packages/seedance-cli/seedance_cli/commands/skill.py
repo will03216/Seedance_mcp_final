@@ -120,10 +120,18 @@ def check() -> None:
     # Claude Code settings
     _show_config_status("Claude Code settings", _claude_code_settings())
 
-    # Skill file
-    skill_path = _claude_code_skills_dir() / "seedance.md"
-    mark = "[success]✔[/success]" if skill_path.exists() else "[error]✖[/error]"
-    state = "installed" if skill_path.exists() else "not installed"
+    # Skill file (directory format: <skills>/seedance/SKILL.md)
+    skill_path = _claude_code_skills_dir() / "seedance" / "SKILL.md"
+    refs_path = _claude_code_skills_dir() / "seedance" / "references"
+    installed = skill_path.exists()
+    refs_ok = refs_path.is_dir()
+    mark = "[success]✔[/success]" if (installed and refs_ok) else "[error]✖[/error]"
+    if installed and refs_ok:
+        state = "installed"
+    elif installed:
+        state = "installed but references/ MISSING — re-run 'seedance skill install'"
+    else:
+        state = "not installed"
     console.print(f"  {mark}  Claude Code skill   [dim]{skill_path}[/dim]  {state}")
 
     # MCP package
@@ -203,25 +211,44 @@ def _install_claude_code_settings(dry_run: bool) -> None:
 
 def _install_skill_file(dry_run: bool) -> None:
     skills_dir = _claude_code_skills_dir()
-    dest = skills_dir / "seedance.md"
+    # Claude Code skills are directories: <skills>/seedance/SKILL.md plus the
+    # references/ the skill loads. Installing a bare seedance.md (the old
+    # behaviour) shipped a skill whose every references/ link was broken.
+    dest_dir = skills_dir / "seedance"
+    dest_skill = dest_dir / "SKILL.md"
+    dest_refs = dest_dir / "references"
 
     try:
-        src = _skill_source()
+        src = _skill_source()  # .../skills/seedance.md
     except FileNotFoundError as exc:
         warn(str(exc))
         return
 
-    if dest.exists() and dest.read_text() == src.read_text():
-        info(f"Claude Code skill  [dim]{dest}[/dim]  already up to date")
+    src_refs = src.parent / "references"
+
+    if (
+        dest_skill.exists()
+        and dest_skill.read_text() == src.read_text()
+        and (not src_refs.is_dir() or dest_refs.is_dir())
+    ):
+        info(f"Claude Code skill  [dim]{dest_dir}[/dim]  already up to date")
         return
 
     if dry_run:
-        console.print(f"  [dim]Would copy {src} → {dest}[/dim]")
+        console.print(f"  [dim]Would copy {src} → {dest_skill}[/dim]")
+        if src_refs.is_dir():
+            console.print(f"  [dim]Would copy {src_refs}/ → {dest_refs}/[/dim]")
     else:
-        skills_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest_skill)
+        if src_refs.is_dir():
+            if dest_refs.exists() and not dest_refs.is_symlink():
+                shutil.rmtree(dest_refs)
+            elif dest_refs.is_symlink():
+                dest_refs.unlink()
+            shutil.copytree(src_refs, dest_refs)
     verb = "Would install" if dry_run else "Installed"
-    ok(f"{verb} Claude Code skill  [dim]{dest}[/dim]")
+    ok(f"{verb} Claude Code skill  [dim]{dest_dir}[/dim]")
 
 
 def _remove_from_config(path: Path, section: str, key: str) -> None:
@@ -237,12 +264,31 @@ def _remove_from_config(path: Path, section: str, key: str) -> None:
 
 
 def _remove_skill_file() -> None:
-    dest = _claude_code_skills_dir() / "seedance.md"
-    if dest.exists():
-        dest.unlink()
-        ok(f"Removed skill file  {dest}")
-    else:
-        info("Skill file not found — skipping")
+    skills_dir = _claude_code_skills_dir()
+    dest_dir = skills_dir / "seedance"
+    legacy = skills_dir / "seedance.md"  # pre-2.2 flat-file install
+    removed = False
+
+    if dest_dir.is_symlink():
+        dest_dir.unlink()
+        ok(f"Removed skill symlink  {dest_dir}")
+        removed = True
+    elif dest_dir.exists():
+        shutil.rmtree(dest_dir)
+        ok(f"Removed skill directory  {dest_dir}")
+        removed = True
+
+    if legacy.is_symlink():
+        legacy.unlink()
+        ok(f"Removed legacy skill symlink  {legacy}")
+        removed = True
+    elif legacy.exists():
+        legacy.unlink()
+        ok(f"Removed legacy skill file  {legacy}")
+        removed = True
+
+    if not removed:
+        info("Skill not found — skipping")
 
 
 def _show_config_status(label: str, path: Path) -> None:

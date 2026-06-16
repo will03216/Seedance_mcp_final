@@ -22,11 +22,11 @@ Non-portrait references (backgrounds, storyboards with no real faces, mannequin 
 
 ### Automatic (recommended): `seedance_generate` MCP tool
 
-The `seedance_generate` MCP tool handles portrait upload automatically:
+The `seedance_generate` MCP tool handles asset upload automatically:
 
-1. Detects that the image reference contains a human portrait
-2. Calls `CreateAssetGroup` → `CreateAsset` → polls until `Active`
-3. Substitutes `asset://<id>` into the generation request
+1. For any `--image` URL that is not already an `asset://` ref, calls `CreateAssetGroup` → `CreateAsset` → polls until `Active` (there is no portrait detector — it uploads *every* plain-HTTPS image unconditionally, which is what makes portraits always safe)
+2. Substitutes `asset://<id>` into the generation request
+3. Leaves existing `asset://` refs untouched
 
 Just pass the plain URL — the tool handles the rest:
 

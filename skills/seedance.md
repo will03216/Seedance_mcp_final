@@ -1,7 +1,7 @@
 ---
 name: seedance
 description: Generate videos with BytePlus Seedance 2.0 — text-to-video, image-to-video, prompt optimization, shot design, audio/lip-sync, asset management, and task tracking.
-version: 2.2.0
+version: 2.2.1
 ---
 
 # Seedance Video Generation
@@ -41,7 +41,7 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 >
 > If **any** input image contains a real or virtual human portrait (face / full-body / character reference):
 >
-> - **Automatic path**: use `seedance_generate` — it detects portraits and uploads them to the asset library automatically before submitting.
+> - **Automatic path**: use `seedance_generate` — it auto-uploads *every* plain-HTTPS image reference to the asset library before submitting (there is no portrait detector; it uploads unconditionally, which is exactly why portraits are always safe). Refs already in `asset://` form are passed through untouched.
 > - **Manual path**: call `seedance_create_asset_group` → `seedance_upload_asset` → use the returned `asset://` URL.
 >
 > **Do NOT** pass raw HTTP URLs for human portraits to `seedance_image_to_video` directly — they trigger `InputImageSensitiveContentDetected.PrivacyInformation`.
@@ -152,7 +152,7 @@ in an editor. Use extension for single continuous takes (dialogue, one-path
 movement); use splicing for scene changes and fast action.
 
 The MCP tool `seedance_generate` handles everything automatically:
-1. Creates an asset group and uploads any portrait image to the BytePlus asset library
+1. Creates an asset group and uploads every plain-HTTPS `--image` reference to the BytePlus asset library (any non-`asset://` URL — not just portraits); `asset://` refs are passed through untouched
 2. Passes any `--video` / `--audio-ref` references through (URL-only, not uploaded) — bound by content role and matched to `[video1]` / `[audio1]` tags
 3. Submits the generation job
 4. Returns `task_id` — poll `seedance_check_task` every 10–15 seconds until `status == "succeeded"`

@@ -109,7 +109,7 @@ The API consumes URLs, not raw bytes. Three accepted forms:
 - `data:image/...;base64,...` — for **non-portrait** references (small files)
 - **`asset://<asset_id>` — REQUIRED for any real or virtual human portrait reference**
 
-`seedance_generate` handles portrait detection and upload automatically. For manual asset management, see [`assets.md`](assets.md).
+`seedance_generate` auto-uploads every plain-HTTPS `--image` reference to the asset library (no portrait detection — it uploads all non-`asset://` URLs unconditionally, so portraits are always covered). For manual asset management, see [`assets.md`](assets.md).
 
 ---
 
