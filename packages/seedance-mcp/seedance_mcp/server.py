@@ -51,6 +51,9 @@ mcp = FastMCP(
         "control (e.g. multiple reference images, explicit asset:// refs). "
         "To upscale/enhance an EXISTING video (e.g. a generated output URL) up to 4K, use "
         "byteplus_upscale_video, then poll byteplus_check_upscale_task until status == 'completed'. "
+        "When the user has a LOCAL image file (a filesystem path) and needs a public URL — e.g. to "
+        "share it or to feed it into generation — use seedance_upload_image_to_tos. If the user has "
+        "not said which bucket, first call seedance_list_tos_buckets and ASK them which bucket to use. "
         "Do NOT use seedance_auto_generate — it blocks for minutes and causes MCP timeout errors."
     ),
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -532,6 +535,71 @@ def seedance_get_asset(asset_id: str) -> dict:
     else:
         out["message"] = f"Asset status is '{result.status}'. Poll again in a few seconds."
     return out
+
+
+# ---------------------------------------------------------------------------
+# TOS object storage tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def seedance_list_tos_buckets() -> dict:
+    """List the TOS (object storage) buckets available to your AK/SK.
+
+    Call this first when the user wants to upload a local image but has not said
+    which bucket — show the list and ask which bucket to use, then pass that
+    bucket to seedance_upload_image_to_tos.
+
+    Returns:
+        dict with a `buckets` list (name, location, creation_date).
+    """
+    try:
+        buckets = _client().list_tos_buckets()
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        "status": "ok",
+        "count": len(buckets),
+        "buckets": buckets,
+        "message": (
+            "Ask the user which bucket to upload to, then call "
+            "seedance_upload_image_to_tos(file_path=..., bucket=...)."
+            if buckets else "No buckets found for these credentials."
+        ),
+    }
+
+
+@mcp.tool()
+def seedance_upload_image_to_tos(file_path: str, bucket: str = "", key: str = "") -> dict:
+    """Upload a LOCAL image file to a TOS bucket and return its public URL.
+
+    Reads the file from the local filesystem (this server runs locally), uploads
+    it to the bucket with a public-read ACL, and returns a directly fetchable URL
+    that can be shared or passed to seedance_generate / seedance_image_to_video.
+
+    If `bucket` is empty and no default (SEEDANCE_TOS_BUCKET) is configured, call
+    seedance_list_tos_buckets first and ask the user which bucket to use.
+
+    Args:
+        file_path: Absolute path to a local image (e.g. /Users/you/photo.png).
+        bucket: Target TOS bucket. Optional if SEEDANCE_TOS_BUCKET is set.
+        key: Object key within the bucket. Defaults to the filename.
+
+    Returns:
+        dict with bucket, key, and the public url.
+    """
+    try:
+        result = _client().upload_to_tos(file_path, bucket, key)
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        **result.to_dict(),
+        "message": (
+            f"Uploaded. Public URL: {result.url}\n"
+            "Share this URL, or pass it as image_url to seedance_generate."
+        ),
+    }
 
 
 @mcp.tool()

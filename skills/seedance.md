@@ -48,6 +48,8 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 >
 > Non-human references (backgrounds, storyboards, objects, scenery) can use plain URLs as before.
 >
+> **Local files**: generation APIs need a public URL, not a local path. When the user has a local image file, call `seedance_upload_image_to_tos` to push it to a TOS bucket and get a public URL. If they haven't said which bucket, call `seedance_list_tos_buckets` first and ask which one to use (TOS accounts can have multiple buckets).
+>
 > **See [`references/assets.md`](references/assets.md) for the full Assets API workflow.**
 
 ## Prerequisites
@@ -246,6 +248,8 @@ best practices for splitting portrait references, and failure recovery.
 | `seedance_create_asset_group` | Create asset group (manual flow) |
 | `seedance_upload_asset` | Upload image, poll until Active (manual flow) |
 | `seedance_get_asset` | Check asset status |
+| `seedance_list_tos_buckets` | List TOS buckets (call before asking which bucket to upload to) |
+| `seedance_upload_image_to_tos` | Upload a **local** image file to a TOS bucket → public URL |
 | `seedance_list_models` | Show available models and capabilities |
 | `seedance_ping` | Verify credentials and connectivity |
 

@@ -10,14 +10,17 @@ from .config import (
     BASE_URL, DEFAULT_MODEL, FAST_MODEL, INCLUDE_RAW,
     MAX_REFERENCE_AUDIO, MAX_REFERENCE_IMAGES, MAX_REFERENCE_VIDEOS,
     MODELS, PAGE_SIZE_MAX, POLL_TIMEOUT, SUBMIT_TIMEOUT, TERMINAL_STATUSES,
+    TOS_DEFAULT_BUCKET, TOS_ENDPOINT, TOS_REGION,
     __version__, model_caps,
 )
 from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
-from .exceptions import ValidationError
+from .exceptions import StorageError, ValidationError
 from .http import extract_nested, extract_video_url, request_with_retry
 from .mediakit import MediaKitClient
+from .tos import TOSClient
 from .types import (
-    AssetGroupResult, AssetResult, GenerateResult, TaskResult, UpscaleResult,
+    AssetGroupResult, AssetResult, GenerateResult, TaskResult,
+    TOSUploadResult, UpscaleResult,
 )
 
 logger = logging.getLogger("seedance")
@@ -63,6 +66,11 @@ class SeedanceClient:
 
     def _mediakit_client(self) -> MediaKitClient:
         return MediaKitClient(load_mediakit_api_key(self._mediakit_key_override, profile=self._profile))
+
+    def _tos_client(self) -> TOSClient:
+        # TOS reuses the same IAM access keys (ARK_AK / ARK_SK) as the asset library.
+        ak, sk = load_asset_credentials(self._ak_override, self._sk_override, profile=self._profile)
+        return TOSClient(ak, sk)
 
     def _auth_headers(self) -> dict[str, str]:
         return {
@@ -634,6 +642,65 @@ class SeedanceClient:
         )
 
     # ------------------------------------------------------------------
+    # TOS object storage
+    # ------------------------------------------------------------------
+
+    def list_tos_buckets(self) -> list[dict[str, str]]:
+        """List the buckets available to the configured TOS credentials."""
+        return self._tos_client().list_buckets()
+
+    def upload_to_tos(
+        self,
+        file_path: str,
+        bucket: str = "",
+        key: str = "",
+        *,
+        public: bool = True,
+        content_type: str = "",
+    ) -> TOSUploadResult:
+        """Upload a local file to a TOS bucket and return its public URL.
+
+        Args:
+            file_path: Path to a local file to upload.
+            bucket: Target bucket. Falls back to SEEDANCE_TOS_BUCKET if empty.
+            key: Object key (path within the bucket). Defaults to the filename.
+            public: Write a public-read ACL so the URL is directly fetchable.
+            content_type: Override the guessed MIME type.
+        """
+        import mimetypes
+        from pathlib import Path
+
+        bucket = bucket or TOS_DEFAULT_BUCKET
+        if not bucket:
+            raise ValidationError(
+                "No TOS bucket specified. Pass bucket=... or set SEEDANCE_TOS_BUCKET. "
+                "Call list_tos_buckets() to see available buckets."
+            )
+
+        path = Path(file_path).expanduser()
+        if not path.is_file():
+            raise ValidationError(f"File not found: {file_path}")
+
+        data = path.read_bytes()
+        if not data:
+            raise ValidationError(f"File is empty: {file_path}")
+
+        key = (key or path.name).lstrip("/")
+        ctype = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+        tos = self._tos_client()
+        url = tos.put_object(bucket, key, data, content_type=ctype, public=public)
+        logger.info("[%s] Uploaded %s to TOS %s/%s", self._cid(), file_path, bucket, key)
+        return TOSUploadResult(
+            bucket=bucket,
+            key=key,
+            url=url,
+            region=TOS_REGION,
+            size=len(data),
+            content_type=ctype,
+        )
+
+    # ------------------------------------------------------------------
     # Meta
     # ------------------------------------------------------------------
 
@@ -670,4 +737,9 @@ class SeedanceClient:
             "fast_model": FAST_MODEL,
             "base_url": BASE_URL,
             "credentials": status,
+            "tos": {
+                "region": TOS_REGION,
+                "endpoint": TOS_ENDPOINT,
+                "default_bucket": TOS_DEFAULT_BUCKET,
+            },
         }

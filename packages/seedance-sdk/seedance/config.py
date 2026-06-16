@@ -67,6 +67,20 @@ ASSET_POLL_INTERVAL = int(os.getenv("SEEDANCE_ASSET_POLL_INTERVAL", "10"))
 ASSET_POLL_TIMEOUT = int(os.getenv("SEEDANCE_ASSET_POLL_TIMEOUT", "120"))
 
 
+# TOS object storage (HMAC-SHA256 / "TOS4" V4 signing, reuses ARK_AK / ARK_SK)
+# Used to upload local images to a bucket and hand back a public URL that the
+# generation / asset-library APIs can fetch. Region matches the asset API.
+TOS_REGION = os.getenv("SEEDANCE_TOS_REGION", "ap-southeast-1")
+# Service endpoint (ListBuckets). Object requests use the virtual-hosted form
+# {bucket}.{TOS_ENDPOINT}. Override the whole host with SEEDANCE_TOS_ENDPOINT.
+TOS_ENDPOINT = os.getenv("SEEDANCE_TOS_ENDPOINT", f"tos-{TOS_REGION}.bytepluses.com")
+TOS_SERVICE = "tos"
+TOS_TIMEOUT = int(os.getenv("SEEDANCE_TOS_TIMEOUT", "120"))
+# Default bucket — optional. When set, uploads use it unless overridden, so the
+# caller need not be asked which bucket every time.
+TOS_DEFAULT_BUCKET = os.getenv("SEEDANCE_TOS_BUCKET", "")
+
+
 # AI MediaKit video-enhancement API (Bearer auth, separate host + API key)
 # Docs: https://docs.byteplus.com/en/docs/byteplus-vod/ai-mediakit-create-a-video-enhancement-task
 MEDIAKIT_BASE_URL = os.getenv(

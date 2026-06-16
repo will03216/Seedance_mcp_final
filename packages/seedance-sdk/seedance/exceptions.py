@@ -26,5 +26,9 @@ class AssetError(SeedanceError):
     """Raised when an asset library operation fails."""
 
 
+class StorageError(SeedanceError):
+    """Raised when a TOS object-storage operation fails."""
+
+
 class TimeoutError(SeedanceError):
     """Raised when polling exceeds the configured deadline."""

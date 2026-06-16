@@ -1,8 +1,13 @@
 """Seedance SDK — BytePlus Seedance 2.0 video generation."""
 from .client import SeedanceClient
 from .config import __version__
-from .exceptions import APIError, AssetError, AuthError, SeedanceError, ValidationError
-from .types import AssetGroupResult, AssetResult, GenerateResult, TaskResult, UpscaleResult
+from .exceptions import (
+    APIError, AssetError, AuthError, SeedanceError, StorageError, ValidationError,
+)
+from .types import (
+    AssetGroupResult, AssetResult, GenerateResult, TaskResult,
+    TOSUploadResult, UpscaleResult,
+)
 
 __all__ = [
     "SeedanceClient",
@@ -13,10 +18,12 @@ __all__ = [
     "ValidationError",
     "APIError",
     "AssetError",
+    "StorageError",
     # Result types
     "TaskResult",
     "GenerateResult",
     "AssetGroupResult",
     "AssetResult",
+    "TOSUploadResult",
     "UpscaleResult",
 ]

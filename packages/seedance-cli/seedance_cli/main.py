@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import typer
 
-from .commands import auth, assets, generate, models, skill, tasks, upscale
+from .commands import auth, assets, generate, models, skill, tasks, tos, upscale
 
 app = typer.Typer(
     name="seedance",
@@ -34,6 +34,7 @@ app.add_typer(auth.app,     name="auth",     help="Manage BytePlus credentials."
 app.add_typer(generate.app, name="generate", help="Submit video generation jobs.")
 app.add_typer(tasks.app,    name="tasks",    help="Manage generation tasks.")
 app.add_typer(assets.app,   name="asset",    help="Manage the BytePlus asset library.")
+app.add_typer(tos.app,      name="tos",      help="Upload local files to TOS object storage.")
 app.add_typer(models.app,   name="models",   help="List available Seedance models.")
 app.add_typer(skill.app,    name="skill",    help="Install/manage the Claude Code skill.")
 
