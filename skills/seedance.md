@@ -1,7 +1,7 @@
 ---
 name: seedance
 description: Generate videos with BytePlus Seedance 2.0 — text-to-video, image-to-video, prompt optimization, shot design, audio/lip-sync, asset management, and task tracking.
-version: 2.2.1
+version: 2.3.0
 ---
 
 # Seedance Video Generation
@@ -52,6 +52,62 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 >
 > **See [`references/assets.md`](references/assets.md) for the full Assets API workflow.**
 
+> **🚨 MANDATORY PRE-FLIGHT RULE #3 — The Director's Card**
+>
+> Before every `seedance_generate` (MCP) / `seedance generate` (CLI) call,
+> print a **Director's Card** to the user and get confirmation. The card is the
+> proof-of-work that the reference docs were actually applied — its fields
+> cannot be filled without them:
+>
+> ```text
+> 🎬 Director's Card
+> Mode: T2V | I2V | R2V | V2V        Ratio: 16:9   Audio: on/off
+> Shots:
+>   1. [size + move] — [action]            ≈Xs  (basis: e.g. 9 words ÷ 2.5 + 1.5)
+>   2. …                                   ≈Xs  (basis: e.g. 2 beats × 1.2 + 0.5)
+> Duration: Σ = Ns  (4–15 ✓, shot budget ✓)        ← duration-calculus.md
+> Refs: [image1]=hero card (asset://…) · [image2]=scene · …  ← all URLs tagged
+> Performance: [entry → trigger → exit, if any face emotes]  ← performance-direction.md
+> Continuity: [axis / preamble / FLF chain, if multi-clip]   ← continuity-and-editing.md
+> Prompt: """
+>   <the exact, full prompt string that will be submitted>
+>   """                                              ← prompt-guidance.md + prompt-prose-craft.md
+> Checklist: slop ✓ lighting named ✓ tags ✓ safety ✓
+> ```
+>
+> A card with a guessed duration (no basis math), untagged refs, a missing
+> Prompt field, or an emotion adjective in the action line is invalid — go back
+> to the docs.
+
+## Conditional MUST-READ table
+
+`seedance.md` alone is **not enough to submit**. Resolve this table
+top-to-bottom for every request; read what matches **before** drafting the
+prompt:
+
+| If the request involves… | MUST read first |
+|---|---|
+| any submission (always) | [prompt-guidance](references/prompt-guidance.md) + [duration-calculus](references/duration-calculus.md) + [prompt-prose-craft](references/prompt-prose-craft.md) |
+| spoken lines / lip-sync / music | [audio](references/audio.md) |
+| a face that emotes | [performance-direction](references/performance-direction.md) |
+| a recurring character, or any multi-clip project | [character-card](references/character-card.md) + [continuity-and-editing](references/continuity-and-editing.md) |
+| a story bigger than one clip (commercial, episode, montage) | [narrative-design](references/narrative-design.md) |
+| color as story (palette, motif color, grade arc) — any quality-led shot | [color-design](references/color-design.md) |
+| a recognizable genre look (horror, noir, romance, thriller, doc, commercial) | [genre-grammar](references/genre-grammar.md) |
+| meaning carried by the frame (motif, symbolism, POV, blocking, depth, aspect-as-emotion) | [visual-language](references/visual-language.md) |
+| environment/props/period/world-state as story | [production-design](references/production-design.md) |
+| ratio choice, multi-crop campaigns, delivery versions | [aspect-ratio](references/aspect-ratio.md) |
+| editing rhythm, montage, cut grammar (J/L, 30°, match, Kuleshov), pacing curve | [continuity-and-editing](references/continuity-and-editing.md) |
+| any human portrait in the refs | [assets](references/assets.md) |
+| camera/lighting/style choices beyond the quick tables | [shot-design](references/shot-design.md) |
+| copyright, public figures, filter blocks | [safety](references/safety.md) |
+
+Resolve the table top-to-bottom, **read every matched doc before drafting**
+(when 6+ match, read the relevant section of each conditional doc rather than
+every doc end-to-end to stay within context), then cite one concrete rule you
+applied from each doc in the Director's Card. A doc you cannot cite a rule from
+is a doc you did not read.
+
 ## Prerequisites
 
 Install and configure before first use (run from the repo root):
@@ -70,10 +126,21 @@ Then restart Claude Code/Desktop.
 
 ## Loading map
 
-- **Read [prompt-guidance](references/prompt-guidance.md) on EVERY submission** — mandatory 6-component optimization pipeline, anti-slop checklist, integrity checklist, and worked rewrites. Run the user's input through it before calling `seedance_generate`.
+- **Read [prompt-guidance](references/prompt-guidance.md) on EVERY submission** — mandatory 6-component optimization pipeline, reference indexing, multi-shot `Shot N:` grammar, anti-slop checklist, integrity checklist, and worked rewrites. Run the user's input through it before calling `seedance_generate`.
+- **Read [prompt-prose-craft](references/prompt-prose-craft.md) on EVERY submission** — the language-level writing guide: verb physics, temporal phrasing, sensory compression, causal connectors, material anti-plastic vocabulary, atmosphere reliability, contrast pairs, and anti-patterns (negation, nested clauses, past tense). Governs HOW each component is phrased after the 6-component structure is filled.
+- **Read [duration-calculus](references/duration-calculus.md) on EVERY submission** — `duration` is computed from dialogue word count, action beats, performance arcs, and camera minimums, then clamped to 4–15. Never guess it.
+- Read [narrative-design](references/narrative-design.md) when the request is bigger than one shot — story, commercial, episode, montage. It produces the beat sheet and shot list the pipeline consumes.
+- Read [character-card](references/character-card.md) whenever a character recurs across shots or clips — identity is a card (turnaround + expression strip + written identity block), never a single headshot.
+- Read [performance-direction](references/performance-direction.md) for any shot with a face that emotes — micro-expression vocabulary, the entry→trigger→exit arc, and shot-size performance scaling.
+- Read [continuity-and-editing](references/continuity-and-editing.md) for multi-clip projects — continuity ledger, 180°/30° rules, screen direction, first/last-frame chaining, cut grammar (J/L cuts, match-on-action, Kuleshov, montage), pacing curve, and what to unify in post.
+- Read [color-design](references/color-design.md) when color should carry story — palettes, color script across beats, color-as-character motif, temperature arcs.
+- Read [genre-grammar](references/genre-grammar.md) to load a genre's codified visual look (lighting/camera/color/staging conventions).
+- Read [visual-language](references/visual-language.md) for the frame's meaning — motif & image systems, symbolism, motivated camera, depth staging, blocking/proxemics, POV, aspect-ratio-as-emotion.
+- Read [production-design](references/production-design.md) when the world tells the story — props/set as backstory, texture as the anti-CGI lever, period detail, space-as-character.
+- Read [aspect-ratio](references/aspect-ratio.md) for ratio-as-emotion plus delivery containers and multi-crop campaign matrices.
 - Read [workflow](references/workflow.md) when the user needs ideation, genre routing, or I2V/T2V decision rules.
-- Read [shot-design](references/shot-design.md) for the deep vocab on camera, motion, lighting, characters, style, and VFX.
-- Read [audio](references/audio.md) for dialogue, music, lip-sync, and beat-sync.
+- Read [shot-design](references/shot-design.md) for the deep vocab on camera, composition, lens psychology, blocking, lighting, dialogue coverage, characters, style, and VFX.
+- Read [audio](references/audio.md) for the four-layer sound model, dialogue, music, lip-sync, and beat-sync.
 - Read [safety](references/safety.md) for copyright, content filters, anti-slop rewrites, and troubleshooting.
 - **Read [assets](references/assets.md) whenever the input includes a real or virtual human portrait** — the Assets-upload flow is mandatory before generation.
 - Read [examples](references/examples.md) for genre templates and Chinese examples.
@@ -96,6 +163,11 @@ Then restart Claude Code/Desktop.
 10. **Watermark defaults to off.** Never enable watermark unless the user explicitly asks.
 11. **Resolution defaults to `720p`.** Never fall back to `480p` silently. Use `1080p` only when the user explicitly requests it.
 12. **Tag every reference in the prompt.** When `--image`, `--video`, or `--audio` are passed, the optimized prompt MUST tag each reference inline as `[image1]`, `[image2]`, `[video1]`, `[audio1]`, etc. (1-indexed, in argument order). Coverage rule: every passed reference must appear at least once as a tag; if you don't tag it, drop it from the call.
+13. **Multi-shot prompts use `Shot N:` labels (中文: `镜头1:`) as the skeleton** — labels are the model's cut points; bare timestamp blocks are weaker and long unlabeled prose renders as one take. Shot budget: ≈4–6s per shot, max 3 shots per call; 4+ shots → split into chained calls. For an unbroken take, declare "single continuous take, no cuts". See [`references/prompt-guidance.md`](references/prompt-guidance.md) → "Multi-shot".
+14. **Compute `--duration`, never guess it.** Dialogue word count, action beats, performance arcs, and camera-move minimums each have rates — sum per shot, clamp to 4–15, split calls when over. Report the math to the user ("3 shots → 13s"). See [`references/duration-calculus.md`](references/duration-calculus.md).
+15. **Recurring characters need a character card, not a headshot** — turnaround + expression strip + written identity block, uploaded as `asset://`, bound with `[imageN]` and reused verbatim across every call of a project. See [`references/character-card.md`](references/character-card.md).
+16. **Emotion is directed as physical behavior** — entry state → on-screen trigger → exit state, with micro-expression cues scaled to shot size. Emotion adjectives ("sad", "emotional") are slop. See [`references/performance-direction.md`](references/performance-direction.md).
+17. **Prompt prose is craft, not filler.** Every verb encodes visible physics + consequence; temporal progression uses "first/then/by the end" markers; environment phrases compress material + condition + light interaction; present tense only; no negation (rewrite as positive); no nested who/which/that chains. See [`references/prompt-prose-craft.md`](references/prompt-prose-craft.md).
 
 ---
 
