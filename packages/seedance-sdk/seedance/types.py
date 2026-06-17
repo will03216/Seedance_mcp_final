@@ -119,6 +119,31 @@ class AssetGroupResult:
 
 
 @dataclass
+class TOSUploadResult:
+    """Result of uploading a local file to a TOS bucket."""
+    bucket: str
+    key: str
+    url: str
+    region: str = ""
+    size: int = 0
+    content_type: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "bucket": self.bucket,
+            "key": self.key,
+            "url": self.url,
+        }
+        if self.region:
+            out["region"] = self.region
+        if self.size:
+            out["size"] = self.size
+        if self.content_type:
+            out["content_type"] = self.content_type
+        return out
+
+
+@dataclass
 class AssetResult:
     asset_id: str
     asset_ref: str

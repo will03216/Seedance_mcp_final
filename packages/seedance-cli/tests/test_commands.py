@@ -43,6 +43,26 @@ def test_generate_missing_prompt_fails():
     assert result.exit_code != 0
 
 
+def test_generate_forwards_video_and_audio_refs():
+    mock_result = GenerateResult(
+        task_id="task-r2v",
+        status="queued",
+        mode="R2V-Reference",
+        steps=[{"step": "submit_job", "task_id": "task-r2v", "outcome": "queued"}],
+    )
+    with patch("seedance_cli.commands.generate.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        result = runner.invoke(app, [
+            "generate", "--prompt", "Extend [video1], sync [audio1]",
+            "--video", "https://example.com/clip.mp4",
+            "--audio-ref", "https://example.com/voice.mp3",
+        ])
+    assert result.exit_code == 0
+    kwargs = MockClient.return_value.generate.call_args.kwargs
+    assert kwargs["video_urls"] == ["https://example.com/clip.mp4"]
+    assert kwargs["audio_urls"] == ["https://example.com/voice.mp3"]
+
+
 # ---------------------------------------------------------------------------
 # upscale
 # ---------------------------------------------------------------------------

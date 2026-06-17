@@ -37,6 +37,27 @@ A safer prompt answers four questions:
 
 Production language usually passes better than vague shorthand.
 
+### Combat / fight scenes — the `OutputVideoSensitiveContentDetected` trap
+
+Stylized fights (martial arts, sword, brawl) frequently fail OUTPUT moderation
+with `OutputVideoSensitiveContentDetected.PolicyViolation` — the render reads as
+copyrighted film footage or disallowed violence. This is an **output** block, so
+resubmitting the identical prompt usually fails again; the fix is to phrase the
+fight so it cannot read as a copyrighted/violent clip:
+
+- Frame it as **original choreography / training demonstration / a stage
+  performance**, not a "fight to the win." ("a choreographed martial-arts *form*
+  demonstration," "rehearsed stage combat").
+- Keep contact **non-injurious and stylized** — blocked strikes, near-misses,
+  controlled spacing; avoid blood, weapons drawn to wound, knockouts.
+- Avoid any cue that imitates a specific film/franchise look (wuxia wire-work of
+  a named movie, a game's finisher). Describe original costume/setting.
+- Lean on **dance-like motion vocabulary** (sweeps, spins, extensions) which
+  renders the energy without tripping the violence/copyright classifier.
+
+If a combat brief still blocks after a choreography-framed rewrite, tell the
+user it is an output-moderation limit, not a prompt bug.
+
 ## Anti-slop rules
 
 Every word should be observable or operational.
@@ -59,6 +80,28 @@ Replace with:
 - surface detail
 - timing
 - physical consequence
+
+## Portrait / short-drama constraint block
+
+For portrait and character-driven short-drama shots, append a short negative
+constraint at the **end** of the prompt. It measurably reduces face-swapping,
+face-dropping, and jitter. Keep it to one line — do not stack it on product or
+landscape shots where it adds noise.
+
+English:
+
+> Stable face without deformation, clear facial features, normal body
+> proportions, natural and fluid movement, no stiffness, no flicker, no frame
+> stutter.
+
+Chinese:
+
+> 面部稳定不变形，五官清晰，身体比例正常，动作自然流畅，无僵硬、无闪烁、无卡顿。
+
+Use the whole line for a face/full-body short-drama shot; trim to the relevant
+clause (e.g. just `natural, fluid movement, no flicker`) for non-portrait work.
+These are **constraints, not slop** — they express a concrete failure to avoid,
+so the anti-slop pass keeps them.
 
 ## Troubleshooting tree
 

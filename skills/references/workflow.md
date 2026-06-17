@@ -12,8 +12,13 @@ Use this file when the user has an idea but not yet a clean Seedance prompt.
 3. Decide whether to interview or draft directly:
    - Interview when the user is vague, story-first, or uncertain about genre.
    - Draft directly when they already know the subject, action, and look.
-4. Build one clip, not a whole film. Each Seedance request should express one beat.
-5. Test short first. Short clips surface prompt errors faster.
+4. One call = one scene moment. A single call carries up to 2–3 labeled
+   shots (`Shot N:`, ≈4–6s each — the shot budget in
+   [`prompt-guidance.md`](prompt-guidance.md)). Anything bigger routes
+   through [`narrative-design.md`](narrative-design.md): beat sheet → shot
+   list → chained calls ([`continuity-and-editing.md`](continuity-and-editing.md)).
+5. Duration is computed, not guessed — [`duration-calculus.md`](duration-calculus.md).
+6. Test short first. Short clips surface prompt errors faster.
 
 ## Director's journey
 
@@ -22,8 +27,12 @@ Use this lightweight interview when the user needs guidance:
 1. Vision: ask for the one-sentence concept.
 2. Genre: pick the category because genre changes prompt structure.
 3. References: ask whether there are images, videos, or audio assets.
-4. Emotional anchor: identify the key feeling or conflict.
-5. Final beat: define what visibly changes in this clip.
+   Recurring characters get a character card, not a headshot —
+   [`character-card.md`](character-card.md).
+4. Emotional anchor: identify the key feeling or conflict, then convert it
+   to physical behavior ([`performance-direction.md`](performance-direction.md)).
+5. Final beat: define what visibly changes in this clip
+   ([`narrative-design.md`](narrative-design.md) — no visible change, no shot).
 
 Exit early if the user already has strong references and a clear genre. Move straight into prompt assembly.
 
@@ -74,6 +83,8 @@ Use these defaults when the user gives little information:
 | Fight or dance with a reference clip | `R2V`, transfer motion from `[video1]` |
 | No assets, broad idea | `T2V`, one clear subject + one action + one move |
 | Dialogue scene | single speaker per clip, locked framing |
+| Story / multi-scene brief | [`narrative-design.md`](narrative-design.md) → shot list → 2–3 shots per call → chained calls |
+| Emotional close-up beat | MCU/CU, one expression arc, 3–5s ([`performance-direction.md`](performance-direction.md)) |
 
 ## Output contract
 

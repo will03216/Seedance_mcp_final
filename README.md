@@ -23,9 +23,11 @@ All three share the same credentials and the same underlying pipeline — includ
 | Key | Where | Used for |
 |---|---|---|
 | `ARK_API_KEY` | ModelArk → API Keys | Video generation |
-| `ARK_AK` | IAM → Access Keys | Asset library (portrait / sensitive images) |
-| `ARK_SK` | IAM → Access Keys | Asset library |
+| `ARK_AK` | IAM → Access Keys | Asset library + TOS uploads (portrait / sensitive images) |
+| `ARK_SK` | IAM → Access Keys | Asset library + TOS uploads |
 | `MEDIAKIT_API_KEY` | AI MediaKit → Settings → API Keys | Video upscaling *(optional)* |
+| `SEEDANCE_TOS_BUCKET` | TOS console → Buckets | Default bucket for TOS uploads *(optional)* |
+| `SEEDANCE_TOS_REGION` | — | TOS region, default `ap-southeast-1` *(optional)* |
 
 ---
 
@@ -146,6 +148,8 @@ byteplus_check_upscale_task(task_id="amk-tool-enhance-video-xxxx")
 | `seedance_create_asset_group` | Create an asset group (manual flow). |
 | `seedance_upload_asset` | Upload image to asset library, poll until Active. |
 | `seedance_get_asset` | Check asset status. |
+| `seedance_list_tos_buckets` | List TOS buckets for your AK/SK (so Claude can ask which to use). |
+| `seedance_upload_image_to_tos` | Upload a **local** image file to a TOS bucket; returns a public URL. |
 | `seedance_list_models` | List models, resolutions, ratios, features. |
 | `seedance_ping` | Verify credentials and connectivity. |
 
@@ -236,6 +240,11 @@ seedance cancel  <task_id>
 seedance asset group create <name>
 seedance asset upload <url> --group <group_id>
 seedance asset status <asset_id>
+
+# TOS object storage — upload a LOCAL file, get a public URL
+seedance tos buckets                              # list buckets
+seedance tos upload ./photo.png --bucket <name>   # upload, prints public URL
+seedance tos upload ./photo.png --bucket <name> --key folder/photo.png
 
 # Info
 seedance models               # list models, resolutions, ratios

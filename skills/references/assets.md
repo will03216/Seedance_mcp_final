@@ -22,11 +22,11 @@ Non-portrait references (backgrounds, storyboards with no real faces, mannequin 
 
 ### Automatic (recommended): `seedance_generate` MCP tool
 
-The `seedance_generate` MCP tool handles portrait upload automatically:
+The `seedance_generate` MCP tool handles asset upload automatically:
 
-1. Detects that the image reference contains a human portrait
-2. Calls `CreateAssetGroup` → `CreateAsset` → polls until `Active`
-3. Substitutes `asset://<id>` into the generation request
+1. For any `--image` URL that is not already an `asset://` ref, calls `CreateAssetGroup` → `CreateAsset` → polls until `Active` (there is no portrait detector — it uploads *every* plain-HTTPS image unconditionally, which is what makes portraits always safe)
+2. Substitutes `asset://<id>` into the generation request
+3. Leaves existing `asset://` refs untouched
 
 Just pass the plain URL — the tool handles the rest:
 
@@ -146,12 +146,18 @@ Request body:
 
 > **Asynchronous** — starts in `Processing`. Poll `GetAsset` until `Status=Active` before use.
 >
+> **`Moderation.Strategy`** (optional object) — controls the asset's content pre-filter review:
+> - `Default` (server default if the field is omitted): pre-filter review is ON. The asset goes `Processing → Failed` with `InputAudioSensitiveContentDetected` / `InputImageSensitiveContentDetected` if it trips review (this is what catches copyrighted music, recognized commercial tracks, etc.).
+> - `Skip`: skip most non-baseline content-security review policies for this asset, so it ingests to `Active` even if it would otherwise be flagged. **Baseline policies still apply.** Use only for content you are authorized to use (licensed audio, your own footage). Empirically, `Skip` lets an asset that `Default` rejects (e.g. a copyrighted-music clip) reach `Active`.
+>
 > **The URL must be publicly fetchable** (no auth, no Lark-internal links). Base64 / data URIs are NOT supported here.
 >
 > **Per-asset limits**:
 > - Image: jpeg / png / webp / bmp / tiff / gif / heic / heif; aspect 0.4–2.5; 300–6000 px each side; ≤30 MB
-> - Video: mp4 / mov; 480p or 720p; 2–15 s; aspect 0.4–2.5; ≤50 MB; FPS 24–60
+> - Video: mp4 / mov; 480p or 720p; 2–15 s; aspect 0.4–2.5; 300–6000 px; w·h within [409600, 927408]; ≤50 MB; FPS 24–60
 > - Audio: wav / mp3; 2–15 s; ≤15 MB
+>
+> Rate limit: 300 QPM.
 
 ### 3. `GetAsset` — poll until Active
 
@@ -223,6 +229,7 @@ All follow the same `Action=` + `Version=2024-01-01` convention with AK/SK signi
 | `CreateAsset` returns invalid URL | URL not publicly fetchable | Re-host on a public bucket; verify with `curl -I` |
 | Asset stuck in `Processing` >2 min | Backend queue load | Wait longer; or retry upload as a new asset |
 | Asset goes to `Failed` | Content rejected (size, format, NSFW etc.) | Read `Error.Message`; resize / reformat / replace |
+| Asset `Failed` with `InputAudioSensitiveContentDetected` / `InputImageSensitiveContentDetected` at ingestion | Content pre-filter review flagged it (e.g. copyrighted/recognized commercial music) | For content you're authorized to use, set `Moderation.Strategy = "Skip"` on `CreateAsset`; otherwise replace with licensed/royalty-free content |
 | Generation still blocks with `asset://` | Too many references combined in one asset → false positive | Split into separate face / outfit / three-view assets |
 
 ---

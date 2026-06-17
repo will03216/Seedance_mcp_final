@@ -32,6 +32,55 @@ Use this file for starter templates and compact working examples.
 
 `White-haired warrior draws a glowing blade. Dynamic low-angle shot. Bold outlines, flat shading, high-contrast anime rendering, blue particle trail.`
 
+## Short-drama templates (multi-asset, timeline)
+
+Short dramas lean on character consistency + storyboard rhythm. Lead with an
+asset/role declaration, then a per-beat timeline, then style + the portrait
+constraint block. Keep one camera move + one action per beat; externalize
+emotion as physical cues.
+
+### Dialogue-heavy (dorm scene)
+
+Assets: `[image1]` female lead (half body), `[image2]` dorm scene, `[video1]`
+indoor dialogue camera ref, `[audio1]` room ambience.
+
+> The girl [image1] is the lead; [image2] sets the dorm style; camera movement
+> follows [video1]; ambience blends with [audio1].
+>
+> 0–5s:   Early evening. The girl [image1] walks briskly to the dorm door.
+>         Medium shot, steady tracking. Warm sunlight spills down the corridor.
+>         She pauses, takes a breath; lips press together, a flicker of nerves.
+> 5–10s:  She pushes the door open. Cut to indoor medium shot. A roommate looks
+>         up: "How'd the exam go? Did you pass?" Camera eases between half-body
+>         close-ups.
+> 10–15s: She lowers her head, shoulders dropping — close-up. Then looks up,
+>         unable to hold back a grin: "Just kidding!" Camera slowly pulls back
+>         to a wide shot of the laughing dorm.
+>
+> Warm tones, soft light, documentary feel. Stable face without deformation,
+> normal proportions, natural fluid movement, no flicker, no stutter.
+
+### Action / atmosphere-heavy (cliff duel)
+
+Assets: `[image1]` red-robed lead, `[image2]` black-robed antagonist, `[image3]`
+cliff bamboo forest, `[video1]` duel camera ref, `[audio1]` drums. Use `[video1]`
+for camera/timing only.
+
+> [image1] is the lead, [image2] the antagonist, scene from [image3]; camera and
+> rhythm follow [video1] (camera only, not its characters); drums from [audio1].
+>
+> 0–5s:   Dusk. Slow push-in, side medium shot of the red-robed woman [image1]
+>         at the cliff edge; robes sway in the wind; jaw set, gaze cold. A dark
+>         figure [image2] is faint in the distant bamboo.
+> 5–10s:  Focus-shift to a wide aerial. The two stand at opposite ends of the
+>         cliff; wind whips dust. Rhythm lifts with the drums.
+> 10–15s: Ground-level close-up. Both draw swords; the black-clad woman's [image2]
+>         sword tip trembles. Camera follows as they circle, freezing on the
+>         instant before the blades meet.
+>
+> Cool desaturated tones, misty wuxia texture, vintage film grain. Stable faces
+> and body proportions, fluid movement, no stiffness, no stutter.
+
 ## Chinese prompt examples
 
 ### Product I2V

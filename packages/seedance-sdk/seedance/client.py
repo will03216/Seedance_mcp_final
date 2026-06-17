@@ -8,15 +8,19 @@ from typing import Any
 from .asset import AssetClient
 from .config import (
     BASE_URL, DEFAULT_MODEL, FAST_MODEL, INCLUDE_RAW,
+    MAX_REFERENCE_AUDIO, MAX_REFERENCE_IMAGES, MAX_REFERENCE_VIDEOS,
     MODELS, PAGE_SIZE_MAX, POLL_TIMEOUT, SUBMIT_TIMEOUT, TERMINAL_STATUSES,
+    TOS_DEFAULT_BUCKET, TOS_ENDPOINT, TOS_REGION,
     __version__, model_caps,
 )
 from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
-from .exceptions import ValidationError
+from .exceptions import StorageError, ValidationError
 from .http import extract_nested, extract_video_url, request_with_retry
 from .mediakit import MediaKitClient
+from .tos import TOSClient
 from .types import (
-    AssetGroupResult, AssetResult, GenerateResult, TaskResult, UpscaleResult,
+    AssetGroupResult, AssetResult, GenerateResult, TaskResult,
+    TOSUploadResult, UpscaleResult,
 )
 
 logger = logging.getLogger("seedance")
@@ -62,6 +66,11 @@ class SeedanceClient:
 
     def _mediakit_client(self) -> MediaKitClient:
         return MediaKitClient(load_mediakit_api_key(self._mediakit_key_override, profile=self._profile))
+
+    def _tos_client(self) -> TOSClient:
+        # TOS reuses the same IAM access keys (ARK_AK / ARK_SK) as the asset library.
+        ak, sk = load_asset_credentials(self._ak_override, self._sk_override, profile=self._profile)
+        return TOSClient(ak, sk)
 
     def _auth_headers(self) -> dict[str, str]:
         return {
@@ -133,6 +142,8 @@ class SeedanceClient:
         image_urls: list[str] | None = None,
         first_frame_url: str | None = None,
         last_frame_url: str | None = None,
+        video_urls: list[str] | None = None,
+        audio_urls: list[str] | None = None,
     ) -> list[dict]:
         content: list[dict] = [{"type": "text", "text": prompt}]
         if first_frame_url:
@@ -141,7 +152,33 @@ class SeedanceClient:
             content.append({"type": "image_url", "image_url": {"url": last_frame_url}, "role": "last_frame"})
         for u in image_urls or []:
             content.append({"type": "image_url", "image_url": {"url": u}, "role": "reference_image"})
+        for u in video_urls or []:
+            content.append({"type": "video_url", "video_url": {"url": u}, "role": "reference_video"})
+        for u in audio_urls or []:
+            content.append({"type": "audio_url", "audio_url": {"url": u}, "role": "reference_audio"})
         return content
+
+    @staticmethod
+    def _validate_refs(
+        image_urls: list[str] | None,
+        video_urls: list[str] | None,
+        audio_urls: list[str] | None,
+    ) -> None:
+        """Enforce Seedance 2.0 all-round-reference budgets and reject empty
+        entries. Reference videos and audio are URL-only (no asset upload)."""
+        for label, urls, limit in (
+            ("image_urls", image_urls, MAX_REFERENCE_IMAGES),
+            ("video_urls", video_urls, MAX_REFERENCE_VIDEOS),
+            ("audio_urls", audio_urls, MAX_REFERENCE_AUDIO),
+        ):
+            if not urls:
+                continue
+            if not all(urls):
+                raise ValidationError(f"{label} contains an empty entry.")
+            if len(urls) > limit:
+                raise ValidationError(
+                    f"Too many {label}: {len(urls)} (max {limit} for Seedance 2.0)."
+                )
 
     @staticmethod
     def _extra_params(seed: int | None, camerafixed: bool) -> dict:
@@ -205,6 +242,8 @@ class SeedanceClient:
         image_urls: list[str] | None = None,
         first_frame_url: str = "",
         last_frame_url: str = "",
+        video_urls: list[str] | None = None,
+        audio_urls: list[str] | None = None,
         ratio: str = "16:9",
         duration: int = 5,
         resolution: str = "720p",
@@ -213,29 +252,36 @@ class SeedanceClient:
         seed: int | None = None,
         camerafixed: bool = False,
     ) -> TaskResult:
-        """Submit an image-to-video job. Returns immediately with task_id."""
+        """Submit a reference-to-video job (image / video / audio references).
+
+        Returns immediately with task_id. Video and audio references are bound
+        by their content[] role; to *extend* an existing clip, pass that clip
+        as a reference_video and describe the continuation in the prompt.
+        """
         cid = self._cid()
         model = FAST_MODEL if fast_mode else DEFAULT_MODEL
         self._validate(ratio, duration, resolution, model)
 
-        if not image_urls and not first_frame_url and not last_frame_url:
+        if not image_urls and not first_frame_url and not last_frame_url and not video_urls:
             raise ValidationError(
-                "Provide at least one of: image_urls, first_frame_url, or first_frame_url+last_frame_url."
+                "Provide at least one of: image_urls, first_frame_url, "
+                "first_frame_url+last_frame_url, or video_urls."
             )
         if last_frame_url and not first_frame_url:
             raise ValidationError(
                 "last_frame_url requires first_frame_url. The API does not support last-frame-only mode."
             )
-        if image_urls and not all(image_urls):
-            raise ValidationError("image_urls contains an empty entry.")
+        self._validate_refs(image_urls, video_urls, audio_urls)
 
         has_first = bool(first_frame_url)
         has_last = bool(last_frame_url)
         n = len(image_urls or [])
+        nv = len(video_urls or [])
+        na = len(audio_urls or [])
         mode = (
             "I2V-FirstLastFrame" if has_first and has_last
             else "I2V-FirstFrame" if has_first
-            else f"I2V-Reference({n})"
+            else f"R2V-Reference(img={n},vid={nv},aud={na})"
         )
 
         payload = {
@@ -245,6 +291,8 @@ class SeedanceClient:
                 image_urls=image_urls,
                 first_frame_url=first_frame_url or None,
                 last_frame_url=last_frame_url or None,
+                video_urls=video_urls,
+                audio_urls=audio_urls,
             ),
             "ratio": ratio,
             "duration": duration,
@@ -275,6 +323,8 @@ class SeedanceClient:
         image_url: str = "",
         first_frame_url: str = "",
         last_frame_url: str = "",
+        video_urls: list[str] | None = None,
+        audio_urls: list[str] | None = None,
         ratio: str = "16:9",
         duration: int = 5,
         resolution: str = "720p",
@@ -308,6 +358,7 @@ class SeedanceClient:
             raise ValidationError(
                 "last_frame_url requires first_frame_url. The API does not support last-frame-only mode."
             )
+        self._validate_refs(None, video_urls, audio_urls)
 
         steps: list[dict] = []
         resolved_image_url = image_url
@@ -348,11 +399,13 @@ class SeedanceClient:
         has_image = bool(resolved_image_url)
         has_first = bool(first_frame_url)
         has_last = bool(last_frame_url)
+        has_av = bool(video_urls or audio_urls)
 
-        if has_image or has_first or has_last:
+        if has_image or has_first or has_last or has_av:
             mode = (
                 "I2V-FirstLastFrame" if has_first and has_last
                 else "I2V-FirstFrame" if has_first
+                else "R2V-Reference" if has_av
                 else "I2V-Reference"
             )
             image_urls_payload = [resolved_image_url] if has_image else None
@@ -367,6 +420,8 @@ class SeedanceClient:
                 image_urls=image_urls_payload,
                 first_frame_url=first_frame_url or None,
                 last_frame_url=last_frame_url or None,
+                video_urls=video_urls,
+                audio_urls=audio_urls,
             ),
             "ratio": ratio,
             "duration": duration,
@@ -587,6 +642,65 @@ class SeedanceClient:
         )
 
     # ------------------------------------------------------------------
+    # TOS object storage
+    # ------------------------------------------------------------------
+
+    def list_tos_buckets(self) -> list[dict[str, str]]:
+        """List the buckets available to the configured TOS credentials."""
+        return self._tos_client().list_buckets()
+
+    def upload_to_tos(
+        self,
+        file_path: str,
+        bucket: str = "",
+        key: str = "",
+        *,
+        public: bool = True,
+        content_type: str = "",
+    ) -> TOSUploadResult:
+        """Upload a local file to a TOS bucket and return its public URL.
+
+        Args:
+            file_path: Path to a local file to upload.
+            bucket: Target bucket. Falls back to SEEDANCE_TOS_BUCKET if empty.
+            key: Object key (path within the bucket). Defaults to the filename.
+            public: Write a public-read ACL so the URL is directly fetchable.
+            content_type: Override the guessed MIME type.
+        """
+        import mimetypes
+        from pathlib import Path
+
+        bucket = bucket or TOS_DEFAULT_BUCKET
+        if not bucket:
+            raise ValidationError(
+                "No TOS bucket specified. Pass bucket=... or set SEEDANCE_TOS_BUCKET. "
+                "Call list_tos_buckets() to see available buckets."
+            )
+
+        path = Path(file_path).expanduser()
+        if not path.is_file():
+            raise ValidationError(f"File not found: {file_path}")
+
+        data = path.read_bytes()
+        if not data:
+            raise ValidationError(f"File is empty: {file_path}")
+
+        key = (key or path.name).lstrip("/")
+        ctype = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+        tos = self._tos_client()
+        url = tos.put_object(bucket, key, data, content_type=ctype, public=public)
+        logger.info("[%s] Uploaded %s to TOS %s/%s", self._cid(), file_path, bucket, key)
+        return TOSUploadResult(
+            bucket=bucket,
+            key=key,
+            url=url,
+            region=TOS_REGION,
+            size=len(data),
+            content_type=ctype,
+        )
+
+    # ------------------------------------------------------------------
     # Meta
     # ------------------------------------------------------------------
 
@@ -623,4 +737,9 @@ class SeedanceClient:
             "fast_model": FAST_MODEL,
             "base_url": BASE_URL,
             "credentials": status,
+            "tos": {
+                "region": TOS_REGION,
+                "endpoint": TOS_ENDPOINT,
+                "default_bucket": TOS_DEFAULT_BUCKET,
+            },
         }

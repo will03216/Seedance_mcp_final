@@ -51,6 +51,9 @@ mcp = FastMCP(
         "control (e.g. multiple reference images, explicit asset:// refs). "
         "To upscale/enhance an EXISTING video (e.g. a generated output URL) up to 4K, use "
         "byteplus_upscale_video, then poll byteplus_check_upscale_task until status == 'completed'. "
+        "When the user has a LOCAL image file (a filesystem path) and needs a public URL — e.g. to "
+        "share it or to feed it into generation — use seedance_upload_image_to_tos. If the user has "
+        "not said which bucket, first call seedance_list_tos_buckets and ASK them which bucket to use. "
         "Do NOT use seedance_auto_generate — it blocks for minutes and causes MCP timeout errors."
     ),
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -126,6 +129,8 @@ def seedance_image_to_video(
     image_urls: list[str] | None = None,
     first_frame_url: str = "",
     last_frame_url: str = "",
+    video_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
     ratio: str = "16:9",
     duration: int = 5,
     resolution: str = "720p",
@@ -134,22 +139,33 @@ def seedance_image_to_video(
     seed: int | None = None,
     camerafixed: bool = False,
 ) -> dict:
-    """Submit an image-to-video generation job on Seedance 2.0.
+    """Submit a reference-to-video generation job on Seedance 2.0.
 
-    Supports three image input modes:
-      1. image_urls: character/object reference images (tag as [image1], [image2] in prompt)
+    Supports the full all-round-reference set, bound by content[] role:
+      1. image_urls: character/object/scene reference images (tag as [image1], [image2])
       2. first_frame_url: pin the exact starting frame
       3. first_frame_url + last_frame_url: transition between two images
+      4. video_urls: reference videos for motion/camera rhythm (tag as [video1], ...)
+      5. audio_urls: reference audio for lip-sync / beat / pacing (tag as [audio1], ...)
+
+    Video extension: pass the previous clip as a video_url and describe the
+    continuation in the prompt (e.g. "extend [video1] backward by N seconds,
+    keeping character, background, and lighting consistent").
+
+    Limits: ≤9 images, ≤3 videos, ≤3 audio. Video and audio references are
+    URL-only (not auto-uploaded to the asset library).
 
     Args:
-        prompt: Motion and camera description. Tag reference images as [image1], etc.
+        prompt: Motion and camera description. Tag references as [image1], [video1], [audio1], etc.
         image_urls: Reference image URLs (HTTPS or asset://). Matched to [image1], [image2], ...
         first_frame_url: URL of the exact frame the video must START from.
         last_frame_url: URL of the exact frame the video must END at (requires first_frame_url).
+        video_urls: Reference video URLs. Matched to [video1], [video2], ... (max 3).
+        audio_urls: Reference audio URLs (MP3/WAV). Matched to [audio1], ... (max 3).
         ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
         duration: Video length in seconds (4–15).
         resolution: Output quality. One of: 480p | 720p | 1080p
-        generate_audio: Whether to generate a matching audio track.
+        generate_audio: Whether to generate a matching audio track (separate from audio_urls).
         fast_mode: Use the faster/cheaper model variant.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no movement.
@@ -163,6 +179,8 @@ def seedance_image_to_video(
             image_urls=image_urls,
             first_frame_url=first_frame_url,
             last_frame_url=last_frame_url,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
             ratio=ratio,
             duration=duration,
             resolution=resolution,
@@ -189,6 +207,8 @@ def seedance_generate(
     image_url: str = "",
     first_frame_url: str = "",
     last_frame_url: str = "",
+    video_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
     ratio: str = "16:9",
     duration: int = 5,
     resolution: str = "720p",
@@ -204,18 +224,21 @@ def seedance_generate(
     Handles the full pipeline in one call:
       1. If image_url is a plain HTTPS URL: auto-creates asset group + uploads image.
       2. If image_url is already an asset:// ref: skips upload.
-      3. If no image: submits text-to-video directly.
-      4. Returns task_id — poll seedance_check_task until succeeded.
+      3. video_urls / audio_urls are passed through as references (URL-only, not uploaded).
+      4. If no references: submits text-to-video directly.
+      5. Returns task_id — poll seedance_check_task until succeeded.
 
     Args:
-        prompt: Scene/motion description. Tag the reference image as [image1].
+        prompt: Scene/motion description. Tag references as [image1], [video1], [audio1].
         image_url: Reference image — plain HTTPS URL (auto-uploaded) or existing asset:// ref.
         first_frame_url: Pin the exact starting frame (HTTPS or asset://).
         last_frame_url: Pin the exact ending frame (requires first_frame_url).
+        video_urls: Reference video URLs (motion/camera rhythm, or a clip to extend). Max 3.
+        audio_urls: Reference audio URLs (lip-sync / beat / pacing, MP3/WAV). Max 3.
         ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
         duration: Video length in seconds (4–15).
         resolution: Output quality. One of: 480p | 720p | 1080p
-        generate_audio: Whether to generate a matching audio track.
+        generate_audio: Whether to generate a matching audio track (separate from audio_urls).
         fast_mode: Use the faster/cheaper model variant.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no panning or zooming.
@@ -230,6 +253,8 @@ def seedance_generate(
             image_url=image_url,
             first_frame_url=first_frame_url,
             last_frame_url=last_frame_url,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
             ratio=ratio,
             duration=duration,
             resolution=resolution,
@@ -510,6 +535,71 @@ def seedance_get_asset(asset_id: str) -> dict:
     else:
         out["message"] = f"Asset status is '{result.status}'. Poll again in a few seconds."
     return out
+
+
+# ---------------------------------------------------------------------------
+# TOS object storage tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def seedance_list_tos_buckets() -> dict:
+    """List the TOS (object storage) buckets available to your AK/SK.
+
+    Call this first when the user wants to upload a local image but has not said
+    which bucket — show the list and ask which bucket to use, then pass that
+    bucket to seedance_upload_image_to_tos.
+
+    Returns:
+        dict with a `buckets` list (name, location, creation_date).
+    """
+    try:
+        buckets = _client().list_tos_buckets()
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        "status": "ok",
+        "count": len(buckets),
+        "buckets": buckets,
+        "message": (
+            "Ask the user which bucket to upload to, then call "
+            "seedance_upload_image_to_tos(file_path=..., bucket=...)."
+            if buckets else "No buckets found for these credentials."
+        ),
+    }
+
+
+@mcp.tool()
+def seedance_upload_image_to_tos(file_path: str, bucket: str = "", key: str = "") -> dict:
+    """Upload a LOCAL image file to a TOS bucket and return its public URL.
+
+    Reads the file from the local filesystem (this server runs locally), uploads
+    it to the bucket with a public-read ACL, and returns a directly fetchable URL
+    that can be shared or passed to seedance_generate / seedance_image_to_video.
+
+    If `bucket` is empty and no default (SEEDANCE_TOS_BUCKET) is configured, call
+    seedance_list_tos_buckets first and ask the user which bucket to use.
+
+    Args:
+        file_path: Absolute path to a local image (e.g. /Users/you/photo.png).
+        bucket: Target TOS bucket. Optional if SEEDANCE_TOS_BUCKET is set.
+        key: Object key within the bucket. Defaults to the filename.
+
+    Returns:
+        dict with bucket, key, and the public url.
+    """
+    try:
+        result = _client().upload_to_tos(file_path, bucket, key)
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        **result.to_dict(),
+        "message": (
+            f"Uploaded. Public URL: {result.url}\n"
+            "Share this URL, or pass it as image_url to seedance_generate."
+        ),
+    }
 
 
 @mcp.tool()

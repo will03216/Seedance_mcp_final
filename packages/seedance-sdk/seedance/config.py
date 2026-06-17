@@ -19,6 +19,13 @@ INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes"
 TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
 PAGE_SIZE_MAX = 50
 
+# Multi-reference (all-round reference) budgets for Seedance 2.0.
+# The create-task content[] array accepts image / video / audio reference items
+# bound by their `role` field. Limits per the Seedance 2.0 reference docs.
+MAX_REFERENCE_IMAGES = 9
+MAX_REFERENCE_VIDEOS = 3
+MAX_REFERENCE_AUDIO = 3
+
 MODELS: dict[str, dict] = {
     "dreamina-seedance-2-0-260128": {
         "label": "Seedance 2.0 Standard",
@@ -58,6 +65,20 @@ ASSET_REGION = "ap-southeast-1"
 ASSET_VERSION = "2024-01-01"
 ASSET_POLL_INTERVAL = int(os.getenv("SEEDANCE_ASSET_POLL_INTERVAL", "10"))
 ASSET_POLL_TIMEOUT = int(os.getenv("SEEDANCE_ASSET_POLL_TIMEOUT", "120"))
+
+
+# TOS object storage (HMAC-SHA256 / "TOS4" V4 signing, reuses ARK_AK / ARK_SK)
+# Used to upload local images to a bucket and hand back a public URL that the
+# generation / asset-library APIs can fetch. Region matches the asset API.
+TOS_REGION = os.getenv("SEEDANCE_TOS_REGION", "ap-southeast-1")
+# Service endpoint (ListBuckets). Object requests use the virtual-hosted form
+# {bucket}.{TOS_ENDPOINT}. Override the whole host with SEEDANCE_TOS_ENDPOINT.
+TOS_ENDPOINT = os.getenv("SEEDANCE_TOS_ENDPOINT", f"tos-{TOS_REGION}.bytepluses.com")
+TOS_SERVICE = "tos"
+TOS_TIMEOUT = int(os.getenv("SEEDANCE_TOS_TIMEOUT", "120"))
+# Default bucket — optional. When set, uploads use it unless overridden, so the
+# caller need not be asked which bucket every time.
+TOS_DEFAULT_BUCKET = os.getenv("SEEDANCE_TOS_BUCKET", "")
 
 
 # AI MediaKit video-enhancement API (Bearer auth, separate host + API key)
