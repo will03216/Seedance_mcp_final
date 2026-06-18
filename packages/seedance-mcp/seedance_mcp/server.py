@@ -4,10 +4,11 @@ Each tool is a minimal wrapper: validate inputs, call SeedanceClient, return dic
 All business logic (retry, signing, asset pipeline) lives in seedance-sdk.
 
 Environment variables (all optional if ~/.seedance/credentials is configured):
-    ARK_API_KEY      BytePlus ModelArk bearer token
-    ARK_AK           IAM Access Key ID  (required for asset tools)
-    ARK_SK           IAM Secret Key     (required for asset tools)
-    MEDIAKIT_API_KEY AI MediaKit bearer token (required for upscale tools)
+    ARK_API_KEY       BytePlus ModelArk bearer token
+    ARK_AK            IAM Access Key ID  (required for asset tools)
+    ARK_SK            IAM Secret Key     (required for asset tools)
+    ARK_SESSION_TOKEN STS session token  (required for temporary/STS credentials)
+    MEDIAKIT_API_KEY  AI MediaKit bearer token (required for upscale tools)
     MCP_TRANSPORT    "stdio" (default) | "sse"
     MCP_AUTH_TOKEN   Bearer token for SSE transport auth (optional)
     PORT             HTTP port for SSE transport (default: 8000)

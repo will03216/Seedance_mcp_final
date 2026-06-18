@@ -2,7 +2,7 @@
 
 Resolution order (first non-empty value wins):
   1. Explicit constructor arguments
-  2. Environment variables  (ARK_API_KEY, ARK_AK, ARK_SK)
+  2. Environment variables  (ARK_API_KEY, ARK_AK, ARK_SK, ARK_SESSION_TOKEN)
   3. ~/.seedance/credentials  INI file  [default] section
   4. .env file in CWD  (loaded only when python-dotenv is installed)
   5. Legacy ark_api_key.txt  next to the calling module  (backwards compat)
@@ -99,10 +99,15 @@ def load_mediakit_api_key(
 def load_asset_credentials(
     explicit_ak: str | None = None,
     explicit_sk: str | None = None,
+    explicit_session_token: str | None = None,
     *,
     profile: str = "default",
-) -> tuple[str, str]:
-    """Return (ak, sk) for the asset library, or raise AuthError."""
+) -> tuple[str, str, str]:
+    """Return (ak, sk, session_token) for the asset library, or raise AuthError.
+
+    session_token is only required for temporary (STS) credentials; it is empty
+    for long-lived IAM credentials.
+    """
     _load_dotenv()
 
     ak = (
@@ -115,6 +120,11 @@ def load_asset_credentials(
         or os.getenv("ARK_SK", "").strip()
         or _read_ini(CREDENTIALS_PATH, profile, "ark_sk")
     )
+    session_token = (
+        (explicit_session_token or "").strip()
+        or os.getenv("ARK_SESSION_TOKEN", "").strip()
+        or _read_ini(CREDENTIALS_PATH, profile, "ark_session_token")
+    )
 
     if not ak or not sk:
         missing = []
@@ -126,7 +136,7 @@ def load_asset_credentials(
             f"Asset library credentials missing: {', '.join(missing)}.\n"
             "Run 'seedance auth login' or set ARK_AK / ARK_SK environment variables."
         )
-    return ak, sk
+    return ak, sk, session_token
 
 
 def write_credentials(
@@ -134,6 +144,7 @@ def write_credentials(
     ak: str,
     sk: str,
     *,
+    session_token: str = "",
     mediakit_api_key: str = "",
     profile: str = "default",
 ) -> None:
@@ -150,6 +161,10 @@ def write_credentials(
     parser.set(profile, "ark_api_key", api_key)
     parser.set(profile, "ark_ak", ak)
     parser.set(profile, "ark_sk", sk)
+    if session_token:
+        parser.set(profile, "ark_session_token", session_token)
+    elif parser.has_option(profile, "ark_session_token"):
+        parser.remove_option(profile, "ark_session_token")
     if mediakit_api_key:
         parser.set(profile, "mediakit_api_key", mediakit_api_key)
 
@@ -191,6 +206,10 @@ def credentials_configured(*, profile: str = "default") -> dict[str, bool]:
         "sk": bool(
             os.getenv("ARK_SK", "").strip()
             or _read_ini(CREDENTIALS_PATH, profile, "ark_sk")
+        ),
+        "session_token": bool(
+            os.getenv("ARK_SESSION_TOKEN", "").strip()
+            or _read_ini(CREDENTIALS_PATH, profile, "ark_session_token")
         ),
         "mediakit": bool(
             os.getenv("MEDIAKIT_API_KEY", "").strip()

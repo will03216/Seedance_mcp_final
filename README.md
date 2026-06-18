@@ -25,6 +25,7 @@ All three share the same credentials and the same underlying pipeline — includ
 | `ARK_API_KEY` | ModelArk → API Keys | Video generation |
 | `ARK_AK` | IAM → Access Keys | Asset library + TOS uploads (portrait / sensitive images) |
 | `ARK_SK` | IAM → Access Keys | Asset library + TOS uploads |
+| `ARK_SESSION_TOKEN` | IAM → STS | Temporary credentials session token *(required only for STS / temporary credentials)* |
 | `MEDIAKIT_API_KEY` | AI MediaKit → Settings → API Keys | Video upscaling *(optional)* |
 | `SEEDANCE_TOS_BUCKET` | TOS console → Buckets | Default bucket for TOS uploads *(optional)* |
 | `SEEDANCE_TOS_REGION` | — | TOS region, default `ap-southeast-1` *(optional)* |
@@ -78,6 +79,7 @@ docker run -p 8000:8000 \
   -e ARK_API_KEY=<key> \
   -e ARK_AK=<ak> \
   -e ARK_SK=<sk> \
+  -e ARK_SESSION_TOKEN=<session-token> \   # only for temporary (STS) credentials
   -e MCP_AUTH_TOKEN=<strong-random-token> \
   byteplus/seedance-mcp
 ```
@@ -384,11 +386,13 @@ skills/
 
 Resolution order (first non-empty value wins):
 
-1. Constructor args: `SeedanceClient(api_key="...", ak="...", sk="...")`
-2. Environment variables: `ARK_API_KEY`, `ARK_AK`, `ARK_SK`
+1. Constructor args: `SeedanceClient(api_key="...", ak="...", sk="...", session_token="...")`
+2. Environment variables: `ARK_API_KEY`, `ARK_AK`, `ARK_SK`, `ARK_SESSION_TOKEN`
 3. `~/.seedance/credentials` — written by `seedance auth login`
 4. `.env` file in CWD (requires `python-dotenv`)
 5. `ark_api_key.txt` next to the module (legacy)
+
+`ARK_SESSION_TOKEN` is only needed when using temporary (STS) credentials. For long-lived IAM keys, leave it unset.
 
 > Never embed credentials in client config files or Docker images. Use `MCP_AUTH_TOKEN` to protect hosted SSE endpoints.
 

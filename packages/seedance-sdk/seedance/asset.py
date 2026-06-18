@@ -43,8 +43,10 @@ def _norm_query(params: dict) -> str:
     return "&".join(parts)
 
 
-def _sign_request(ak: str, sk: str, action: str, body_str: str) -> tuple[str, str, str, str]:
-    """Return (x_date, content_sha256, canonical_query, authorization)."""
+def _sign_request(
+    ak: str, sk: str, action: str, body_str: str, session_token: str = ""
+) -> tuple[str, str, str, str, str]:
+    """Return (x_date, content_sha256, canonical_query, authorization, session_token)."""
     now = datetime.datetime.utcnow()
     x_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = x_date[:8]
@@ -53,13 +55,23 @@ def _sign_request(ak: str, sk: str, action: str, body_str: str) -> tuple[str, st
     query_params = {"Action": action, "Version": ASSET_VERSION}
     canonical_query = _norm_query(query_params)
 
-    canonical_headers = (
-        f"content-type:{ASSET_CONTENT_TYPE}\n"
-        f"host:{ASSET_HOST}\n"
-        f"x-content-sha256:{content_sha256}\n"
-        f"x-date:{x_date}\n"
-    )
-    signed_headers = "content-type;host;x-content-sha256;x-date"
+    if session_token:
+        canonical_headers = (
+            f"content-type:{ASSET_CONTENT_TYPE}\n"
+            f"host:{ASSET_HOST}\n"
+            f"x-content-sha256:{content_sha256}\n"
+            f"x-date:{x_date}\n"
+            f"x-security-token:{session_token}\n"
+        )
+        signed_headers = "content-type;host;x-content-sha256;x-date;x-security-token"
+    else:
+        canonical_headers = (
+            f"content-type:{ASSET_CONTENT_TYPE}\n"
+            f"host:{ASSET_HOST}\n"
+            f"x-content-sha256:{content_sha256}\n"
+            f"x-date:{x_date}\n"
+        )
+        signed_headers = "content-type;host;x-content-sha256;x-date"
 
     canonical_request = "\n".join([
         "POST", "/", canonical_query, canonical_headers, signed_headers, content_sha256,
@@ -81,7 +93,7 @@ def _sign_request(ak: str, sk: str, action: str, body_str: str) -> tuple[str, st
         f"SignedHeaders={signed_headers}, "
         f"Signature={signature}"
     )
-    return x_date, content_sha256, canonical_query, authorization
+    return x_date, content_sha256, canonical_query, authorization, session_token
 
 
 # ---------------------------------------------------------------------------
@@ -89,9 +101,10 @@ def _sign_request(ak: str, sk: str, action: str, body_str: str) -> tuple[str, st
 # ---------------------------------------------------------------------------
 
 class AssetClient:
-    def __init__(self, ak: str, sk: str) -> None:
+    def __init__(self, ak: str, sk: str, session_token: str = "") -> None:
         self._ak = ak
         self._sk = sk
+        self._session_token = session_token
 
     def _call(
         self,
@@ -102,8 +115,8 @@ class AssetClient:
         correlation_id: str = "",
     ) -> dict[str, Any]:
         body_str = json.dumps(body)
-        x_date, content_sha256, canonical_query, authorization = _sign_request(
-            self._ak, self._sk, action, body_str
+        x_date, content_sha256, canonical_query, authorization, session_token = _sign_request(
+            self._ak, self._sk, action, body_str, self._session_token
         )
         url = f"https://{ASSET_HOST}/?{canonical_query}"
         headers = {
@@ -114,6 +127,8 @@ class AssetClient:
             "Host": ASSET_HOST,
             "Accept": "application/json",
         }
+        if session_token:
+            headers["X-Security-Token"] = session_token
         req = urllib_request.Request(url, data=body_str.encode(), headers=headers, method="POST")
         try:
             with urllib_request.urlopen(req, timeout=timeout) as resp:

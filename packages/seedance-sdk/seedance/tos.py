@@ -121,12 +121,14 @@ class TOSClient:
         self,
         ak: str,
         sk: str,
+        session_token: str = "",
         *,
         region: str = TOS_REGION,
         endpoint: str = TOS_ENDPOINT,
     ) -> None:
         self._ak = ak
         self._sk = sk
+        self._session_token = session_token
         self._region = region
         self._endpoint = endpoint
 
@@ -167,10 +169,13 @@ class TOSClient:
         payload_sha256: str,
         extra_headers: dict[str, str],
     ) -> dict[str, str]:
+        headers = dict(extra_headers)
+        if self._session_token:
+            headers["X-Tos-Security-Token"] = self._session_token
         return _sign(
             self._ak, self._sk,
             method=method, host=host, path=path,
-            payload_sha256=payload_sha256, headers=extra_headers,
+            payload_sha256=payload_sha256, headers=headers,
         )
 
     # -- public API ---------------------------------------------------------

@@ -44,12 +44,14 @@ class SeedanceClient:
         ak: str | None = None,
         sk: str | None = None,
         *,
+        session_token: str | None = None,
         mediakit_api_key: str | None = None,
         profile: str = "default",
     ) -> None:
         self._api_key_override = api_key
         self._ak_override = ak
         self._sk_override = sk
+        self._session_token_override = session_token
         self._mediakit_key_override = mediakit_api_key
         self._profile = profile
 
@@ -61,16 +63,22 @@ class SeedanceClient:
         return load_api_key(self._api_key_override, profile=self._profile)
 
     def _asset_client(self) -> AssetClient:
-        ak, sk = load_asset_credentials(self._ak_override, self._sk_override, profile=self._profile)
-        return AssetClient(ak, sk)
+        ak, sk, session_token = load_asset_credentials(
+            self._ak_override, self._sk_override, self._session_token_override,
+            profile=self._profile,
+        )
+        return AssetClient(ak, sk, session_token)
 
     def _mediakit_client(self) -> MediaKitClient:
         return MediaKitClient(load_mediakit_api_key(self._mediakit_key_override, profile=self._profile))
 
     def _tos_client(self) -> TOSClient:
         # TOS reuses the same IAM access keys (ARK_AK / ARK_SK) as the asset library.
-        ak, sk = load_asset_credentials(self._ak_override, self._sk_override, profile=self._profile)
-        return TOSClient(ak, sk)
+        ak, sk, session_token = load_asset_credentials(
+            self._ak_override, self._sk_override, self._session_token_override,
+            profile=self._profile,
+        )
+        return TOSClient(ak, sk, session_token)
 
     def _auth_headers(self) -> dict[str, str]:
         return {

@@ -26,9 +26,13 @@ def login(
     console.print("Credentials are stored in [cyan]~/.seedance/credentials[/cyan] (chmod 600).\n")
     console.print("Find your keys at: [url]https://console.byteplus.com/iam/[/url]\n")
 
-    api_key  = Prompt.ask("  ARK_API_KEY      (ModelArk bearer token)", password=True)
-    ak       = Prompt.ask("  ARK_AK           (IAM Access Key ID)")
-    sk       = Prompt.ask("  ARK_SK           (IAM Secret Key)", password=True)
+    api_key       = Prompt.ask("  ARK_API_KEY      (ModelArk bearer token)", password=True)
+    ak            = Prompt.ask("  ARK_AK           (IAM Access Key ID)")
+    sk            = Prompt.ask("  ARK_SK           (IAM Secret Key)", password=True)
+    session_token = Prompt.ask(
+        "  ARK_SESSION_TOKEN (STS session token for temporary credentials — optional)",
+        password=True, default="", show_default=False,
+    )
     mediakit = Prompt.ask(
         "  MEDIAKIT_API_KEY (AI MediaKit key for upscaling — optional)",
         password=True, default="", show_default=False,
@@ -40,6 +44,7 @@ def login(
 
     write_credentials(
         api_key.strip(), ak.strip(), sk.strip(),
+        session_token=session_token.strip(),
         mediakit_api_key=mediakit.strip(), profile=profile,
     )
     ok(f"Credentials saved to ~/.seedance/credentials  [profile: {profile}]")
@@ -47,7 +52,10 @@ def login(
     # Quick liveness check
     info("Verifying credentials with seedance ping…")
     try:
-        result = SeedanceClient(api_key=api_key.strip(), ak=ak.strip(), sk=sk.strip()).ping()
+        result = SeedanceClient(
+            api_key=api_key.strip(), ak=ak.strip(), sk=sk.strip(),
+            session_token=session_token.strip() or None,
+        ).ping()
         ok(f"Connection OK  (server v{result['version']})")
     except SeedanceError as exc:
         warn(f"Saved, but ping failed: {exc}")
@@ -63,16 +71,17 @@ def check(
     console.print(f"\n[bold]Credential status[/bold]  (profile: [cyan]{profile}[/cyan])\n")
 
     for key, label in [
-        ("api_key",  "ARK_API_KEY      (video generation)"),
-        ("ak",       "ARK_AK           (asset library)   "),
-        ("sk",       "ARK_SK           (asset library)   "),
-        ("mediakit", "MEDIAKIT_API_KEY (upscaling, optional)"),
+        ("api_key",       "ARK_API_KEY       (video generation)"),
+        ("ak",            "ARK_AK            (asset library)   "),
+        ("sk",            "ARK_SK            (asset library)   "),
+        ("session_token", "ARK_SESSION_TOKEN (STS temporary creds, optional)"),
+        ("mediakit",      "MEDIAKIT_API_KEY  (upscaling, optional)"),
     ]:
         mark = "[success]✔[/success]" if status[key] else "[error]✖[/error]"
         state = "configured" if status[key] else "missing"
         console.print(f"  {mark}  {label}  [dim]{state}[/dim]")
 
-    # MEDIAKIT_API_KEY is optional — only the three core credentials are required.
+    # MEDIAKIT_API_KEY and ARK_SESSION_TOKEN are optional — only the three core credentials are required.
     required = ("api_key", "ak", "sk")
     if all(status[k] for k in required):
         console.print("\n  [success]All required credentials are configured.[/success]")
