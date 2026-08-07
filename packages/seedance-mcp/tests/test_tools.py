@@ -118,6 +118,134 @@ def test_error_from_sdk_returns_error_dict():
     assert "bad ratio" in result["error"]
 
 
+def test_text_to_video_forwards_model_and_output_format():
+    t2v, *_ = _import_tools()
+    mock_result = TaskResult(task_id="task-25", status="queued", mode="T2V")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_text_to_video.return_value = mock_result
+        t2v("test", model="2.5", output_format="mov")
+    kwargs = MockClient.return_value.submit_text_to_video.call_args.kwargs
+    assert kwargs["model"] == "2.5"
+    assert kwargs["output_format"] == "mov"
+
+
+def test_generate_defaults_ratio_to_auto():
+    from seedance_mcp.server import seedance_generate
+    mock_result = GenerateResult(task_id="t", status="queued", mode="T2V", steps=[])
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        seedance_generate("test")
+    assert MockClient.return_value.generate.call_args.kwargs["ratio"] == "auto"
+
+
+def test_generate_forwards_image_urls_list():
+    from seedance_mcp.server import seedance_generate
+    mock_result = GenerateResult(task_id="t", status="queued", mode="I2V-Reference", steps=[])
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        seedance_generate("@Image1 and @Image2", image_urls=["https://a/1.jpg", "https://a/2.jpg"])
+    kwargs = MockClient.return_value.generate.call_args.kwargs
+    assert kwargs["image_urls"] == ["https://a/1.jpg", "https://a/2.jpg"]
+
+
+# ---------------------------------------------------------------------------
+# Seedance 2.5 edit / extend tools
+# ---------------------------------------------------------------------------
+
+def test_edit_video_returns_task_id_and_constraint_message():
+    from seedance_mcp.server import seedance_edit_video
+    mock_result = TaskResult(task_id="task-edit", status="queued", mode="V2V-Edit(vid=1)")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.return_value = mock_result
+        result = seedance_edit_video(
+            "Video edit: remove the crowd in @Video1.",
+            video_urls=["https://example.com/scene.mov"],
+        )
+    assert result["task_id"] == "task-edit"
+    assert "ratio and duration" in result["message"]
+    args = MockClient.return_value.submit_video_edit.call_args
+    assert args.args[1] == ["https://example.com/scene.mov"]
+    assert args.kwargs["output_format"] == "mov"
+
+
+def test_edit_video_does_not_expose_ratio_or_duration():
+    # These are locked by the task type; exposing them would only let an agent
+    # construct a request that fails asynchronously.
+    import inspect
+
+    from seedance_mcp.server import seedance_edit_video
+    params = inspect.signature(seedance_edit_video).parameters
+    assert "ratio" not in params
+    assert "duration" not in params
+
+
+def test_extend_video_forwards_duration():
+    from seedance_mcp.server import seedance_extend_video
+    mock_result = TaskResult(task_id="task-ext", status="queued", mode="V2V-Extend(vid=1)")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_extend.return_value = mock_result
+        result = seedance_extend_video(
+            "Extend @Video1.", video_urls=["https://example.com/v.mov"], duration=11,
+        )
+    assert result["task_id"] == "task-ext"
+    assert MockClient.return_value.submit_video_extend.call_args.kwargs["duration"] == 11
+
+
+def test_extend_video_exposes_duration_but_not_ratio():
+    import inspect
+
+    from seedance_mcp.server import seedance_extend_video
+    params = inspect.signature(seedance_extend_video).parameters
+    assert "duration" in params
+    assert "ratio" not in params
+
+
+def test_edit_video_error_returns_error_dict():
+    from seedance.exceptions import ValidationError
+    from seedance_mcp.server import seedance_edit_video
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.side_effect = ValidationError(
+            "Video editing requires Seedance 2.5"
+        )
+        result = seedance_edit_video("Video edit: x.", video_urls=["https://a/v.mov"])
+    assert result["status"] == "error"
+    assert "Seedance 2.5" in result["error"]
+
+
+def test_check_task_explains_task_type_constraint_failure():
+    _, check, *_ = _import_tools()
+    mock_result = TaskResult(
+        task_id="task-bad",
+        status="failed",
+        error={"code": "InvalidParameter.TaskTypeConstraint", "message": "ratio must be adaptive"},
+    )
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.check_task.return_value = mock_result
+        result = check("task-bad")
+    assert "seedance_edit_video" in result["message"]
+
+
+def test_check_task_surfaces_output_format():
+    _, check, *_ = _import_tools()
+    mock_result = TaskResult(
+        task_id="t", status="succeeded", video_url="https://cdn/v.mov",
+        output_format="mov", duration=11,
+    )
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.check_task.return_value = mock_result
+        result = check("t")
+    assert result["output_format"] == "mov"
+    assert result["duration"] == 11
+
+
+def test_list_models_includes_seedance_25():
+    *_, list_models, _ = _import_tools()
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.list_models.return_value = {"models": []}
+        list_models()
+    assert MockClient.return_value.list_models.called
+
+
 def test_upscale_video_returns_task_id():
     from seedance_mcp.server import byteplus_upscale_video
     mock_result = UpscaleResult(task_id="amk-123", status="submitted")

@@ -1,7 +1,7 @@
 # Duration Calculus — compute the duration, never guess it
 
-`duration` is an integer 4–15 passed to `seedance_generate` (MCP) /
-`seedance generate --duration N` (CLI). Picking it by
+`duration` is an integer **4–30 on Seedance 2.5** (4–15 on Seedance 2.0) passed to
+`seedance_generate` (MCP) / `seedance generate --duration N` (CLI). Picking it by
 feel is a top-3 silent failure mode:
 
 - **Too short** → actions compressed or skipped, dialogue truncated mid-word,
@@ -10,6 +10,21 @@ feel is a top-3 silent failure mode:
   camera wander, repeated gestures.
 
 The fix is a rule algorithm: score each shot by its content, sum, clamp.
+
+> **Seedance 2.5 doubled the ceiling to 30s — it did not change the arithmetic.**
+> The rates below are unchanged, and a longer ceiling is not permission to pad. A
+> 12s idea is still 12s; asking for 30 gets you 18s of invented drift. What the
+> ceiling buys you is that ideas which used to require splitting at 15s (a 45-word
+> pitch, a five-shot montage) now fit in one call with continuity intact.
+>
+> **Two task types ignore your number entirely.** A **video edit** takes its length
+> from the source clip — `duration` must be `-1`, and passing anything else is an
+> error. A **first-frame** or **video-extend** job accepts a duration normally.
+> `seedance edit` sets this for you.
+>
+> **`duration=-1` means "model chooses".** Use it only when the user genuinely has
+> no length in mind. It is an abdication, not a default — you lose the ability to
+> budget shots, and the shot-count sanity check below stops applying.
 
 ---
 
@@ -112,15 +127,20 @@ A camera move that runs shorter than its minimum reads as jitter, not as a move.
 4. **Round up** to an integer. `duration=` is ALWAYS a concrete integer — even
    when matching a reference video's rhythm, estimate that clip's length and
    commit to a number. Never emit a placeholder or a description
-   (`"match_[video1]_length"`) as the duration; the API needs an int.
-5. **Clamp to 4–15:**
+   (`"match_@Video1_length"`) as the duration; the API needs an int.
+5. **Clamp to the model's range** — 4–30 on Seedance 2.5, 4–15 on Seedance 2.0:
    - Total < 4 → pad with entry hold or reaction tail. Never pad with new action.
-   - Total > 15 → **split into multiple calls** at scene boundaries and chain
+   - Total > the ceiling → **split into multiple calls** at scene boundaries and chain
      via first/last-frame (see [`continuity-and-editing.md`](continuity-and-editing.md)).
+     On 2.5 this now bites at 30s rather than 15s, so most single scenes fit whole.
 6. **Shot-count sanity check** (the shot budget): a healthy call averages
    4–6s per shot. Two shots want ≥10s total; three shots want 12–15s.
    **Four or more shots in one call → split the call.** If you ask for four
    shots in 10s the model compresses or skips beats.
+   On Seedance 2.5 the 30s ceiling raises the *arithmetic* limit to roughly six
+   shots, but the per-call coherence limit has not moved: past four shots the model
+   still loses the thread. Treat 4 shots as the cap and spend the extra seconds on
+   giving each shot room, not on adding more of them.
 
 Report the computed duration to the user alongside the optimized prompt
 ("3 shots → 13s") so the math is auditable.
@@ -146,8 +166,19 @@ Total 12s, 3 shots → fits. `duration=12`.
 **20-word monologue.** `20 / 2.5 = 8s + 1.5 ≈ 10s`, single locked MCU,
 `duration=10`.
 
-**45-word pitch.** `45 / 2.5 = 18s + tails > 15s` → split into two calls at the
-paragraph turn, chain with last-frame → first-frame, unify music in post.
+**45-word pitch.** `45 / 2.5 = 18s + tails ≈ 20s`. On Seedance 2.5 this fits in one
+call — `duration=20`, single locked MCU, no splice, no continuity risk. On Seedance
+2.0 it exceeded the 15s ceiling and had to be split into two calls at the paragraph
+turn, chained last-frame → first-frame with music unified in post. This is the
+clearest everyday win from the raised ceiling.
+
+**Four-shot montage.** Shots of 5 + 6 + 5 + 6s = 22s. Fits one Seedance 2.5 call at
+the shot-count cap. `duration=22`. A fifth shot would still mean splitting — the
+ceiling is not the binding constraint here, coherence is.
+
+**Video edit.** "Remove the crowd from this 12s clip." Do not compute anything:
+`duration=-1`, and the output matches the source (possibly ~0.4s shorter). Passing
+`duration=12` is rejected.
 
 ---
 
@@ -159,6 +190,9 @@ paragraph turn, chain with last-frame → first-frame, unify music in post.
 | 4 shots in 10s | Skipped or compressed beats |
 | Slow push-in in a 2s window | Imperceptible move or jitter |
 | `duration=15` for "he walks down the street" | 10s of invented filler drift |
+| `duration=30` on 2.5 because the ceiling allows it | 20s+ of drift — the ceiling is not a target |
+| `duration=-1` to avoid doing the math | No shot budget, unpredictable length |
+| A concrete `duration` on a video-edit task | `InvalidParameter.TaskTypeConstraint`, failed asynchronously |
 | Cutting exactly on the last syllable | No reaction beat — amateur rhythm |
 | Budgeting an action subject by camera-minimum only | Static product hold — the pour/stir/stretch never happens |
 | Budgeting an action-then-talk shot by dialogue only | The action (cooking, etc.) is skipped or shoved to the background |

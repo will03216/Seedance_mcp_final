@@ -5,6 +5,14 @@ members = [
     "packages/seedance-cli",
 ]
 
+# Resolve the intra-workspace dependencies from the local checkout rather than
+# the index. Required by uv >= 0.5, which errors out on a workspace member
+# referenced as a plain dependency without a matching source entry.
+[tool.uv.sources]
+seedance-sdk = { workspace = true }
+seedance-mcp = { workspace = true }
+seedance-cli = { workspace = true }
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100

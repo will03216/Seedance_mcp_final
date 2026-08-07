@@ -31,11 +31,11 @@ For a hero character, build these layers (in priority order):
    prompt of the project:
 
 ```
-The [role] [imageN] — [age band / build / silhouette], [feature 1],
+The [role] @ImageN — [age band / build / silhouette], [feature 1],
 [feature 2], [feature 3], wearing [wardrobe lock].
 ```
 
-> Example: `The courier [image1] — wiry woman in her late 20s, silver bob cut,
+> Example: `The courier @Image1 — wiry woman in her late 20s, silver bob cut,
 > thin scar through the left eyebrow, crimson scarf, knee-length charcoal coat.`
 
 The written block is **redundancy by design** (belt and suspenders): if the
@@ -76,7 +76,8 @@ Generate the card before any video work (use the `Seedream` skill):
 
 ### Reference-slot budget
 
-`image_urls` accepts up to 9 images — spend them deliberately:
+`image_urls` accepts up to 30 images on Seedance 2.5 (9 on 2.0) — but spend them
+deliberately; a card that works needs far fewer than the ceiling allows:
 
 | Character tier | Slots |
 |----------------|-------|
@@ -88,7 +89,7 @@ Generate the card before any video work (use the `Seedream` skill):
 
 - Character cards contain human likenesses → **`asset://` upload is mandatory**
   (see [`assets.md`](assets.md)), even for AI-generated faces.
-- Bind with `[imageN]` at first introduction, inside the identity block.
+- Bind with `@ImageN` at first introduction, inside the identity block.
 - Re-tag at identity-critical beats (close-ups, scale changes) — see
   [`prompt-guidance.md`](prompt-guidance.md) reference indexing.
 
@@ -110,5 +111,5 @@ block text. In every call of the project:
 - same `asset://` IDs, same argument order where possible;
 - identity block pasted verbatim (do not paraphrase it — paraphrase is drift);
 - wardrobe state changes (torn sleeve, dirt, injury) tracked in the
-  continuity ledger and written as *deltas from the card*: "as in [image1]
+  continuity ledger and written as *deltas from the card*: "as in @Image1
   but the coat's left sleeve is torn".

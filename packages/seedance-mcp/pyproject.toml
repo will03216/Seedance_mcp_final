@@ -4,14 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seedance-mcp"
-version = "2.0.0"
-description = "MCP server exposing BytePlus Seedance 2.0 video generation to AI clients"
+version = "2.1.0"
+description = "MCP server exposing BytePlus Seedance video generation (2.5 + 2.0) to AI clients"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["byteplus", "seedance", "mcp", "video-generation", "ai"]
 dependencies = [
-    "seedance-sdk>=2.0.0",
-    "mcp>=1.0.0",
+    "seedance-sdk>=2.1.0",
+    # mcp 2.x removed mcp.server.fastmcp in favour of mcp.server.mcpserver;
+    # this server is written against the 1.x FastMCP API.
+    "mcp>=1.0.0,<2.0.0",
     "uvicorn>=0.30.0",
 ]
 

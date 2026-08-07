@@ -43,17 +43,26 @@ logger = logging.getLogger("seedance_mcp")
 mcp = FastMCP(
     name="seedance",
     instructions=(
-        "Tools for generating videos with BytePlus Seedance 2.0. "
+        "Tools for generating videos with BytePlus Seedance. Seedance 2.5 is the default "
+        "model: up to 30s, 480p/720p, up to 30 reference images + 10 videos + 10 audio clips, "
+        "and mp4 or mov output. Pass model='2.0' for the older model when you need 1080p. "
         "PREFERRED: use seedance_generate for most tasks — it handles asset upload "
         "and job submission in one call, then poll seedance_check_task every 10–15 seconds "
         "until status == 'succeeded'. "
         "Use seedance_text_to_video or seedance_image_to_video only when you need fine-grained "
         "control (e.g. multiple reference images, explicit asset:// refs). "
+        "To modify an EXISTING video use seedance_edit_video (add/remove/replace elements) or "
+        "seedance_extend_video (continue it forwards or backwards) — both are Seedance 2.5 only "
+        "and handle the ratio/duration constraints those task types require. Prefer them over "
+        "describing an edit through seedance_image_to_video, which cannot validate those "
+        "constraints and will fail asynchronously minutes later. "
         "To upscale/enhance an EXISTING video (e.g. a generated output URL) up to 4K, use "
         "byteplus_upscale_video, then poll byteplus_check_upscale_task until status == 'completed'. "
         "When the user has a LOCAL image file (a filesystem path) and needs a public URL — e.g. to "
         "share it or to feed it into generation — use seedance_upload_image_to_tos. If the user has "
         "not said which bucket, first call seedance_list_tos_buckets and ASK them which bucket to use. "
+        "In prompts, tag references as @Image1 / @Video1 / @Audio1 (1-indexed, in argument order) "
+        "for Seedance 2.5, or [image1] / [video1] / [audio1] for Seedance 2.0. "
         "Do NOT use seedance_auto_generate — it blocks for minutes and causes MCP timeout errors."
     ),
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -76,24 +85,32 @@ def _err(exc: Exception) -> dict[str, Any]:
 @mcp.tool()
 def seedance_text_to_video(
     prompt: str,
-    ratio: str = "16:9",
+    ratio: str = "auto",
     duration: int = 5,
     resolution: str = "720p",
     generate_audio: bool = False,
     fast_mode: bool = False,
+    model: str = "",
+    output_format: str = "",
     seed: int | None = None,
     camerafixed: bool = False,
 ) -> dict:
-    """Submit a text-to-video generation job on Seedance 2.0.
+    """Submit a text-to-video generation job on Seedance.
 
     Args:
         prompt: Detailed scene description. Include subject, action, camera movement,
                 lighting, and style for best results.
-        ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
-        duration: Video length in seconds (4–15).
-        resolution: Output quality. One of: 480p | 720p | 1080p
+        ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive,
+               or 'auto' (default) to let the server pick — currently 16:9.
+        duration: Video length in seconds. 4–30 on Seedance 2.5, 4–15 on 2.0.
+                  Pass -1 to let the model choose within that range.
+        resolution: Output quality. 480p | 720p on Seedance 2.5; 2.0 also allows 1080p.
         generate_audio: Whether to generate a matching audio track.
-        fast_mode: Use the faster/cheaper model variant (lower quality).
+        fast_mode: Use the faster/cheaper model variant. There is no Seedance 2.5
+                   fast variant, so this always runs on Seedance 2.0 Fast.
+        model: Model to use — '2.5' (default), '2.0', or '2.0-fast'. Use '2.0' for 1080p.
+        output_format: 'mp4' (default) or 'mov' (Seedance 2.5 only). mov carries higher
+                       colour precision for grading/compositing but plays in fewer players.
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no panning or zooming.
 
@@ -108,6 +125,8 @@ def seedance_text_to_video(
             resolution=resolution,
             generate_audio=generate_audio,
             fast_mode=fast_mode,
+            model=model,
+            output_format=output_format,
             seed=seed,
             camerafixed=camerafixed,
         )
@@ -131,42 +150,54 @@ def seedance_image_to_video(
     last_frame_url: str = "",
     video_urls: list[str] | None = None,
     audio_urls: list[str] | None = None,
-    ratio: str = "16:9",
+    ratio: str = "auto",
     duration: int = 5,
     resolution: str = "720p",
     generate_audio: bool = False,
     fast_mode: bool = False,
+    model: str = "",
+    output_format: str = "",
     seed: int | None = None,
     camerafixed: bool = False,
 ) -> dict:
-    """Submit a reference-to-video generation job on Seedance 2.0.
+    """Submit a reference-to-video generation job on Seedance.
 
     Supports the full all-round-reference set, bound by content[] role:
-      1. image_urls: character/object/scene reference images (tag as [image1], [image2])
+      1. image_urls: character/object/scene reference images (tag as @Image1, @Image2)
       2. first_frame_url: pin the exact starting frame
       3. first_frame_url + last_frame_url: transition between two images
-      4. video_urls: reference videos for motion/camera rhythm (tag as [video1], ...)
-      5. audio_urls: reference audio for lip-sync / beat / pacing (tag as [audio1], ...)
+      4. video_urls: reference videos for motion/camera rhythm (tag as @Video1, ...)
+      5. audio_urls: reference audio for lip-sync / beat / pacing (tag as @Audio1, ...)
 
-    Video extension: pass the previous clip as a video_url and describe the
-    continuation in the prompt (e.g. "extend [video1] backward by N seconds,
-    keeping character, background, and lighting consistent").
+    To EDIT or EXTEND an existing video, prefer seedance_edit_video /
+    seedance_extend_video — they apply the ratio and duration constraints those
+    task types require. Describing an edit here submits successfully and then
+    fails asynchronously minutes later if the parameters clash.
 
-    Limits: ≤9 images, ≤3 videos, ≤3 audio. Video and audio references are
-    URL-only (not auto-uploaded to the asset library).
+    Limits: Seedance 2.5 allows ≤30 images, ≤10 videos, ≤10 audio, each clip ≤30s
+    and ≤30s in total per media type; Seedance 2.0 allows ≤9 / ≤3 / ≤3 at ≤15s.
+    Seedance 2.5 also accepts audio-only input (no image or video needed).
+    Video and audio references are URL-only (not auto-uploaded to the asset library).
 
     Args:
-        prompt: Motion and camera description. Tag references as [image1], [video1], [audio1], etc.
-        image_urls: Reference image URLs (HTTPS or asset://). Matched to [image1], [image2], ...
+        prompt: Motion and camera description. Tag references as @Image1, @Video1, @Audio1
+                on Seedance 2.5 ([image1], [video1], [audio1] on 2.0).
+        image_urls: Reference image URLs (HTTPS or asset://). Matched to @Image1, @Image2, ...
         first_frame_url: URL of the exact frame the video must START from.
         last_frame_url: URL of the exact frame the video must END at (requires first_frame_url).
-        video_urls: Reference video URLs. Matched to [video1], [video2], ... (max 3).
-        audio_urls: Reference audio URLs (MP3/WAV). Matched to [audio1], ... (max 3).
-        ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
-        duration: Video length in seconds (4–15).
-        resolution: Output quality. One of: 480p | 720p | 1080p
+        video_urls: Reference video URLs. Matched to @Video1, @Video2, ...
+        audio_urls: Reference audio URLs (MP3/WAV). Matched to @Audio1, ...
+        ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive,
+               or 'auto' (default). On Seedance 2.5 a first-frame job locks the output
+               ratio to the first frame image, so it accepts only 'adaptive' — 'auto'
+               resolves to that for you.
+        duration: Video length in seconds. 4–30 on Seedance 2.5, 4–15 on 2.0, or -1
+                  to let the model choose.
+        resolution: Output quality. 480p | 720p on Seedance 2.5; 2.0 also allows 1080p.
         generate_audio: Whether to generate a matching audio track (separate from audio_urls).
-        fast_mode: Use the faster/cheaper model variant.
+        fast_mode: Use the faster/cheaper variant — always Seedance 2.0 Fast.
+        model: '2.5' (default), '2.0', or '2.0-fast'.
+        output_format: 'mp4' (default) or 'mov' (Seedance 2.5 only).
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no movement.
 
@@ -186,6 +217,8 @@ def seedance_image_to_video(
             resolution=resolution,
             generate_audio=generate_audio,
             fast_mode=fast_mode,
+            model=model,
+            output_format=output_format,
             seed=seed,
             camerafixed=camerafixed,
         )
@@ -205,15 +238,18 @@ def seedance_image_to_video(
 def seedance_generate(
     prompt: str,
     image_url: str = "",
+    image_urls: list[str] | None = None,
     first_frame_url: str = "",
     last_frame_url: str = "",
     video_urls: list[str] | None = None,
     audio_urls: list[str] | None = None,
-    ratio: str = "16:9",
+    ratio: str = "auto",
     duration: int = 5,
     resolution: str = "720p",
     generate_audio: bool = False,
     fast_mode: bool = False,
+    model: str = "",
+    output_format: str = "",
     seed: int | None = None,
     camerafixed: bool = False,
     asset_group_id: str = "",
@@ -222,35 +258,45 @@ def seedance_generate(
 
     Preferred over seedance_text_to_video / seedance_image_to_video for most use cases.
     Handles the full pipeline in one call:
-      1. If image_url is a plain HTTPS URL: auto-creates asset group + uploads image.
-      2. If image_url is already an asset:// ref: skips upload.
+      1. Plain HTTPS reference images: auto-creates an asset group + uploads each one.
+      2. Images already given as asset:// refs: skips upload.
       3. video_urls / audio_urls are passed through as references (URL-only, not uploaded).
       4. If no references: submits text-to-video directly.
       5. Returns task_id — poll seedance_check_task until succeeded.
 
+    To edit or extend an existing video, use seedance_edit_video / seedance_extend_video.
+
     Args:
-        prompt: Scene/motion description. Tag references as [image1], [video1], [audio1].
-        image_url: Reference image — plain HTTPS URL (auto-uploaded) or existing asset:// ref.
+        prompt: Scene/motion description. Tag references as @Image1, @Video1, @Audio1
+                on Seedance 2.5 ([image1], [video1], [audio1] on 2.0).
+        image_url: A single reference image — plain HTTPS URL (auto-uploaded) or asset:// ref.
+        image_urls: Additional reference images, appended after image_url so the tag
+                    numbering follows argument order. Up to 30 total on Seedance 2.5.
         first_frame_url: Pin the exact starting frame (HTTPS or asset://).
         last_frame_url: Pin the exact ending frame (requires first_frame_url).
-        video_urls: Reference video URLs (motion/camera rhythm, or a clip to extend). Max 3.
-        audio_urls: Reference audio URLs (lip-sync / beat / pacing, MP3/WAV). Max 3.
-        ratio: Aspect ratio. One of: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
-        duration: Video length in seconds (4–15).
-        resolution: Output quality. One of: 480p | 720p | 1080p
+        video_urls: Reference video URLs (motion/camera rhythm). Up to 10 on Seedance 2.5.
+        audio_urls: Reference audio URLs (lip-sync / beat / pacing, MP3/WAV). Up to 10 on 2.5.
+        ratio: Aspect ratio, or 'auto' (default). A first-frame job on Seedance 2.5 locks
+               the ratio to the first frame image and accepts only 'adaptive'.
+        duration: Video length in seconds. 4–30 on Seedance 2.5, 4–15 on 2.0, or -1
+                  to let the model choose.
+        resolution: Output quality. 480p | 720p on Seedance 2.5; 2.0 also allows 1080p.
         generate_audio: Whether to generate a matching audio track (separate from audio_urls).
-        fast_mode: Use the faster/cheaper model variant.
+        fast_mode: Use the faster/cheaper variant — always Seedance 2.0 Fast.
+        model: '2.5' (default), '2.0', or '2.0-fast'.
+        output_format: 'mp4' (default) or 'mov' (Seedance 2.5 only).
         seed: Random seed for reproducible results.
         camerafixed: Fix the camera — no panning or zooming.
         asset_group_id: Reuse an existing asset group (skips group creation).
 
     Returns:
-        dict with task_id, status, mode, steps, and optional asset_id.
+        dict with task_id, status, mode, model, steps, and optional asset_id(s).
     """
     try:
         result = _client().generate(
             prompt,
             image_url=image_url,
+            image_urls=image_urls,
             first_frame_url=first_frame_url,
             last_frame_url=last_frame_url,
             video_urls=video_urls,
@@ -260,6 +306,8 @@ def seedance_generate(
             resolution=resolution,
             generate_audio=generate_audio,
             fast_mode=fast_mode,
+            model=model,
+            output_format=output_format,
             seed=seed,
             camerafixed=camerafixed,
             asset_group_id=asset_group_id,
@@ -271,11 +319,149 @@ def seedance_generate(
 
 
 @mcp.tool()
+def seedance_edit_video(
+    prompt: str,
+    video_urls: list[str],
+    image_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
+    resolution: str = "720p",
+    generate_audio: bool = True,
+    output_format: str = "mov",
+    seed: int | None = None,
+) -> dict:
+    """Edit an EXISTING video with Seedance 2.5 — add, remove, or replace elements.
+
+    Use for requests like "remove the people in the background", "change her jacket
+    to red", or "take the music out of this clip". The model works out which
+    reference video to edit from the prompt, so name it explicitly (@Video1) when
+    passing more than one.
+
+    Constraints handled for you (they are NOT settable — the API rejects overrides):
+      • The output keeps the source video's aspect ratio.
+      • The output keeps the source video's duration, and may run up to ~0.4s shorter.
+      • The source video must itself be 4–30 seconds long.
+
+    Seedance 2.5 only. For a clip that should CONTINUE rather than change, use
+    seedance_extend_video.
+
+    Args:
+        prompt: The edit to perform, naming the target — e.g.
+                "Video edit: remove everyone in @Video1 except the protagonist."
+        video_urls: Reference video URLs; the one to edit is chosen from the prompt.
+                    Up to 10, each 2–30s and ≤30s in total.
+        image_urls: Optional reference images for anything being added (up to 30).
+        audio_urls: Optional reference audio (up to 10).
+        resolution: 480p or 720p.
+        generate_audio: Generate a matching audio track (default True).
+        output_format: 'mov' (default) or 'mp4'. mov is recommended for edits — its
+                       higher colour precision keeps audio and video in sync and
+                       survives further post-processing. Use mp4 for wider playback.
+        seed: Random seed for reproducible results.
+
+    Returns:
+        dict with task_id and status. Poll seedance_check_task every 10–15s.
+    """
+    try:
+        result = _client().submit_video_edit(
+            prompt,
+            video_urls,
+            image_urls=image_urls,
+            audio_urls=audio_urls,
+            resolution=resolution,
+            generate_audio=generate_audio,
+            output_format=output_format,
+            seed=seed,
+        )
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        **result.to_dict(),
+        "message": (
+            f"Video edit submitted. Poll with seedance_check_task(task_id='{result.task_id}') "
+            "every 10–15 seconds until status == 'succeeded'. The output keeps the source "
+            "video's ratio and duration."
+        ),
+    }
+
+
+@mcp.tool()
+def seedance_extend_video(
+    prompt: str,
+    video_urls: list[str],
+    duration: int = -1,
+    image_urls: list[str] | None = None,
+    audio_urls: list[str] | None = None,
+    resolution: str = "720p",
+    generate_audio: bool = True,
+    output_format: str = "mov",
+    seed: int | None = None,
+) -> dict:
+    """Extend an EXISTING video with Seedance 2.5 — continue it forwards or backwards.
+
+    Use for requests like "keep this shot going for another 8 seconds" or "show what
+    happens next". The model works out which reference video to extend from the
+    prompt, so name it explicitly (@Video1) when passing more than one.
+
+    Constraint handled for you: the output keeps the source video's aspect ratio and
+    it is NOT settable. Unlike editing, the duration IS settable here.
+
+    Seedance 2.5 only. To change what is IN a clip rather than continue it, use
+    seedance_edit_video.
+
+    Args:
+        prompt: The continuation, naming the target — e.g. "Extend @Video1, then after
+                the window opens, move into the gallery interior of @Video2."
+        video_urls: Reference video URLs; the one to extend is chosen from the prompt.
+                    Up to 10, each 2–30s and ≤30s in total.
+        duration: Length of the generated video in seconds (4–30), or -1 (default)
+                  to let the model choose.
+        image_urls: Optional reference images for anything introduced (up to 30).
+        audio_urls: Optional reference audio (up to 10).
+        resolution: 480p or 720p.
+        generate_audio: Generate a matching audio track (default True).
+        output_format: 'mov' (default) or 'mp4'. mov is recommended for extensions —
+                       it keeps audio and video in sync across the join.
+        seed: Random seed for reproducible results.
+
+    Returns:
+        dict with task_id and status. Poll seedance_check_task every 10–15s.
+    """
+    try:
+        result = _client().submit_video_extend(
+            prompt,
+            video_urls,
+            duration=duration,
+            image_urls=image_urls,
+            audio_urls=audio_urls,
+            resolution=resolution,
+            generate_audio=generate_audio,
+            output_format=output_format,
+            seed=seed,
+        )
+    except SeedanceError as exc:
+        return _err(exc)
+
+    return {
+        **result.to_dict(),
+        "message": (
+            f"Video extension submitted. Poll with seedance_check_task(task_id='{result.task_id}') "
+            "every 10–15 seconds until status == 'succeeded'. The output keeps the source "
+            "video's aspect ratio."
+        ),
+    }
+
+
+@mcp.tool()
 def seedance_check_task(task_id: str) -> dict:
     """Check the status of a Seedance video generation task.
 
     Poll every 10–15 seconds after submitting a job. When status == 'succeeded'
-    the response includes video_url.
+    the response includes video_url, plus duration, ratio, resolution, and (on
+    Seedance 2.5) output_format.
+
+    Note: the returned duration is the API's approximation — total frames // 24 —
+    so it can read up to a second shorter than the real file.
 
     Args:
         task_id: The task ID returned by any generation tool.
@@ -291,6 +477,15 @@ def seedance_check_task(task_id: str) -> dict:
     out = result.to_dict()
     if result.video_url:
         out["message"] = "Video is ready. Download or display the video_url."
+    elif result.task_type_constraint_error:
+        out["message"] = (
+            "Task failed: the parameters clashed with the task type the model inferred "
+            "from the prompt. Seedance 2.5 locks the aspect ratio to the source for "
+            "first-frame, edit, and extend tasks, and locks the duration to the source "
+            "for edits. Resubmit via seedance_edit_video or seedance_extend_video, which "
+            "apply these constraints automatically. Details: "
+            f"{result.error}"
+        )
     elif result.terminal:
         out["message"] = f"Task ended with status '{result.status}'."
     else:
@@ -303,6 +498,7 @@ def seedance_list_tasks(
     page_num: int = 1,
     page_size: int = 10,
     status_filter: str = "",
+    model_filter: str = "",
 ) -> dict:
     """List recent Seedance video generation tasks.
 
@@ -310,12 +506,13 @@ def seedance_list_tasks(
         page_num: Page number (1-indexed).
         page_size: Results per page (max 50).
         status_filter: Optional. Filter by: queued | running | succeeded | failed | cancelled
+        model_filter: Optional. Filter by model — '2.5', '2.0', '2.0-fast', or a full model ID.
 
     Returns:
         dict with tasks list and pagination info.
     """
     try:
-        data = _client().list_tasks(page_num, page_size, status_filter)
+        data = _client().list_tasks(page_num, page_size, status_filter, model_filter)
     except SeedanceError as exc:
         return _err(exc)
 
@@ -328,6 +525,8 @@ def seedance_list_tasks(
                 "task_id": t.task_id,
                 "status": t.status,
                 "video_url": t.video_url,
+                "model": t.model,
+                "output_format": t.output_format,
             }
             for t in data["tasks"]
         ],

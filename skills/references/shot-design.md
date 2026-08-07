@@ -38,7 +38,7 @@ back" looks plainer than the brief asks — give the camera a choreographed path
 > State "the same [product]" across shots so the model keeps one coherent hero,
 > not a lineup.
 
-⚠️ **When a reference video supplies the camera rhythm** (an R2V/`[video1]`
+⚠️ **When a reference video supplies the camera rhythm** (an R2V/`@Video1`
 "运镜节奏" brief), follow ITS pacing — its move count, cut points, accelerations
 and holds. Do **not** flatten it into the default 3×4s template; that discards
 the very thing the reference was given for. Match the reference's beat count and
@@ -114,7 +114,7 @@ The model is most stable on low-amplitude motion. Favor `walks slowly`,
 `gently raises a hand`, `slightly lowers the head`, `smoothly sits down`.
 Avoid high-intensity verbs — `sprints`, `big jump`, `violent roll`, `rapid
 spin` — which drive jitter and limb deformation. If a big action is essential,
-transfer it from a `[video1]` reference instead of describing it in text.
+transfer it from a `@Video1` reference instead of describing it in text.
 
 ### Write the transition between actions
 
@@ -173,9 +173,9 @@ expression strip, written identity block — not a headshot. See
 Tag each reference inline next to the character it controls — 1-indexed,
 matching the order of `image_urls=` in the API call:
 
-- `Character A [image1] confronts Character B [image2] across the room.`
-- `She [image1] turns toward the door.` (face + wardrobe consistency from image 1)
-- `The hero [image1] in the rain-slick alley [image2].` (subject ref + scene ref)
+- `Character A @Image1 confronts Character B @Image2 across the room.`
+- `She @Image1 turns toward the door.` (face + wardrobe consistency from image 1)
+- `The hero @Image1 in the rain-slick alley @Image2.` (subject ref + scene ref)
 
 Avoid ambiguous pronouns when multiple characters are present. **Without a
 tag, Seedance falls back to using the first image as a literal first-frame**

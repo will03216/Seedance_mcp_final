@@ -1,12 +1,14 @@
 ---
 name: seedance
-description: Generate videos with BytePlus Seedance 2.0 — text-to-video, image-to-video, prompt optimization, shot design, audio/lip-sync, asset management, and task tracking.
-version: 2.3.0
+description: Generate videos with BytePlus Seedance 2.5 — text-to-video, image-to-video, video editing and extension, prompt optimization, shot design, audio/lip-sync, asset management, and task tracking.
+version: 2.4.0
 ---
 
 # Seedance Video Generation
 
-Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Claude Code.
+Use this skill to generate AI videos with BytePlus Seedance 2.5 directly from Claude Code.
+Seedance 2.5 is the default model. Seedance 2.0 stays available via `--model 2.0` and is the
+only way to get 1080p.
 
 > **🚨 MANDATORY PRE-FLIGHT RULE #1 — Prompt optimization**
 >
@@ -22,9 +24,11 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 > optimized prompt before submission so they can confirm or tweak it.
 >
 > **If references are passed** (`--image`, `--video`, `--audio-ref`),
-> the optimized prompt **MUST tag every reference** as `[image1]`, `[image2]`,
-> `[video1]`, `[audio1]`, etc. (1-indexed, in argument order) next to the
-> entity it represents. Without these tags, Seedance cannot bind references to
+> the optimized prompt **MUST tag every reference** as `@Image1`, `@Image2`,
+> `@Video1`, `@Audio1`, etc. (1-indexed, in argument order) next to the
+> entity it represents. (Seedance 2.0 uses the older `[image1]` / `[video1]` /
+> `[audio1]` bracket form — match the form to the model you are calling.)
+> Without these tags, Seedance cannot bind references to
 > subjects and falls back to using the first image as a literal first-frame —
 > which is wrong for character / object / style references.
 >
@@ -34,7 +38,7 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 >
 > The only opt-out: the user explicitly says "use this prompt as-is" *and* the
 > input already follows the 6-component framework *and* (if refs are passed)
-> already contains the `[imageN]` / `[videoN]` / `[audioN]` tags. Even then,
+> already contains the `@ImageN` / `@VideoN` / `@AudioN` tags. Even then,
 > run the integrity check (step 6) before submission.
 
 > **🚨 MANDATORY PRE-FLIGHT RULE #2 — Real or virtual human portraits**
@@ -61,12 +65,12 @@ Use this skill to generate AI videos with BytePlus Seedance 2.0 directly from Cl
 >
 > ```text
 > 🎬 Director's Card
-> Mode: T2V | I2V | R2V | V2V        Ratio: 16:9   Audio: on/off
+> Mode: T2V | I2V | R2V | V2V-Edit | V2V-Extend    Model: 2.5   Ratio: 16:9   Audio: on/off
 > Shots:
 >   1. [size + move] — [action]            ≈Xs  (basis: e.g. 9 words ÷ 2.5 + 1.5)
 >   2. …                                   ≈Xs  (basis: e.g. 2 beats × 1.2 + 0.5)
-> Duration: Σ = Ns  (4–15 ✓, shot budget ✓)        ← duration-calculus.md
-> Refs: [image1]=hero card (asset://…) · [image2]=scene · …  ← all URLs tagged
+> Duration: Σ = Ns  (4–30 on 2.5 ✓, shot budget ✓)   ← duration-calculus.md
+> Refs: @Image1=hero card (asset://…) · @Image2=scene · …  ← all URLs tagged
 > Performance: [entry → trigger → exit, if any face emotes]  ← performance-direction.md
 > Continuity: [axis / preamble / FLF chain, if multi-clip]   ← continuity-and-editing.md
 > Prompt: """
@@ -128,7 +132,7 @@ Then restart Claude Code/Desktop.
 
 - **Read [prompt-guidance](references/prompt-guidance.md) on EVERY submission** — mandatory 6-component optimization pipeline, reference indexing, multi-shot `Shot N:` grammar, anti-slop checklist, integrity checklist, and worked rewrites. Run the user's input through it before calling `seedance_generate`.
 - **Read [prompt-prose-craft](references/prompt-prose-craft.md) on EVERY submission** — the language-level writing guide: verb physics, temporal phrasing, sensory compression, causal connectors, material anti-plastic vocabulary, atmosphere reliability, contrast pairs, and anti-patterns (negation, nested clauses, past tense). Governs HOW each component is phrased after the 6-component structure is filled.
-- **Read [duration-calculus](references/duration-calculus.md) on EVERY submission** — `duration` is computed from dialogue word count, action beats, performance arcs, and camera minimums, then clamped to 4–15. Never guess it.
+- **Read [duration-calculus](references/duration-calculus.md) on EVERY submission** — `duration` is computed from dialogue word count, action beats, performance arcs, and camera minimums, then clamped to 4–30 on Seedance 2.5 (4–15 on 2.0). Never guess it, and never treat the raised ceiling as a target.
 - Read [narrative-design](references/narrative-design.md) when the request is bigger than one shot — story, commercial, episode, montage. It produces the beat sheet and shot list the pipeline consumes.
 - Read [character-card](references/character-card.md) whenever a character recurs across shots or clips — identity is a card (turnaround + expression strip + written identity block), never a single headshot.
 - Read [performance-direction](references/performance-direction.md) for any shot with a face that emotes — micro-expression vocabulary, the entry→trigger→exit arc, and shot-size performance scaling.
@@ -161,11 +165,11 @@ Then restart Claude Code/Desktop.
 8. Use async submission only. Submit → return `task_id` → poll `seedance_check_task` on demand. No blocking, no `time.sleep`.
 9. If the user wants to submit but no `ARK_API_KEY` is configured, run `seedance auth login` or see [platform](references/platform.md). Do not assume a key already exists.
 10. **Watermark defaults to off.** Never enable watermark unless the user explicitly asks.
-11. **Resolution defaults to `720p`.** Never fall back to `480p` silently. Use `1080p` only when the user explicitly requests it.
-12. **Tag every reference in the prompt.** When `--image`, `--video`, or `--audio` are passed, the optimized prompt MUST tag each reference inline as `[image1]`, `[image2]`, `[video1]`, `[audio1]`, etc. (1-indexed, in argument order). Coverage rule: every passed reference must appear at least once as a tag; if you don't tag it, drop it from the call.
+11. **Resolution defaults to `720p`.** Never fall back to `480p` silently. Seedance 2.5 has no 1080p tier — if the user explicitly wants 1080p, either switch to `--model 2.0` or generate at 720p and finish with `byteplus_upscale_video`. Say which you chose.
+12. **Tag every reference in the prompt.** When `--image`, `--video`, or `--audio` are passed, the optimized prompt MUST tag each reference inline as `@Image1`, `@Image2`, `@Video1`, `@Audio1`, etc. (1-indexed, in argument order) on Seedance 2.5, or `@Image1` / `@Video1` / `@Audio1` on 2.0. Coverage rule: every passed reference must appear at least once as a tag; if you don't tag it, drop it from the call.
 13. **Multi-shot prompts use `Shot N:` labels (中文: `镜头1:`) as the skeleton** — labels are the model's cut points; bare timestamp blocks are weaker and long unlabeled prose renders as one take. Shot budget: ≈4–6s per shot, max 3 shots per call; 4+ shots → split into chained calls. For an unbroken take, declare "single continuous take, no cuts". See [`references/prompt-guidance.md`](references/prompt-guidance.md) → "Multi-shot".
-14. **Compute `--duration`, never guess it.** Dialogue word count, action beats, performance arcs, and camera-move minimums each have rates — sum per shot, clamp to 4–15, split calls when over. Report the math to the user ("3 shots → 13s"). See [`references/duration-calculus.md`](references/duration-calculus.md).
-15. **Recurring characters need a character card, not a headshot** — turnaround + expression strip + written identity block, uploaded as `asset://`, bound with `[imageN]` and reused verbatim across every call of a project. See [`references/character-card.md`](references/character-card.md).
+14. **Compute `--duration`, never guess it.** Dialogue word count, action beats, performance arcs, and camera-move minimums each have rates — sum per shot, clamp to 4–30 on Seedance 2.5 (4–15 on 2.0), split calls when over. Report the math to the user ("4 shots → 22s"). Pass `-1` only when the user genuinely has no length in mind. See [`references/duration-calculus.md`](references/duration-calculus.md).
+15. **Recurring characters need a character card, not a headshot** — turnaround + expression strip + written identity block, uploaded as `asset://`, bound with `@ImageN` and reused verbatim across every call of a project. See [`references/character-card.md`](references/character-card.md).
 16. **Emotion is directed as physical behavior** — entry state → on-screen trigger → exit state, with micro-expression cues scaled to shot size. Emotion adjectives ("sad", "emotional") are slop. See [`references/performance-direction.md`](references/performance-direction.md).
 17. **Prompt prose is craft, not filler.** Every verb encodes visible physics + consequence; temporal progression uses "first/then/by the end" markers; environment phrases compress material + condition + light interaction; present tense only; no negation (rewrite as positive); no nested who/which/that chains. See [`references/prompt-prose-craft.md`](references/prompt-prose-craft.md).
 
@@ -183,51 +187,90 @@ morning light cuts in, steam rises slowly, camera slowly pushes in
 
 **Image-to-video (portrait / reference image):**
 ```
-/seedance generate [image1] smiles softly, camera slowly pushes in --image https://example.com/portrait.jpg
+/seedance generate @Image1 smiles softly, camera slowly pushes in --image https://example.com/portrait.jpg
 ```
 
 **Full options:**
 ```
 /seedance generate <prompt>
-  --image <url>          Reference image (auto-uploaded to asset library for portraits)
-  --video <url>          Reference video — motion/camera rhythm, or a clip to extend. Repeatable, max 3. Tag [video1]…
-  --audio-ref <url>      Reference audio — lip-sync / beat / pacing (MP3/WAV). Repeatable, max 3. Tag [audio1]…
-  --first-frame <url>    Pin the exact starting frame
+  --image <url>          Reference image (auto-uploaded to asset library for portraits). Repeatable, up to 30. Tag @Image1…
+  --video <url>          Reference video — motion/camera rhythm. Repeatable, up to 10. Tag @Video1…
+  --audio-ref <url>      Reference audio — lip-sync / beat / pacing (MP3/WAV). Repeatable, up to 10. Tag @Audio1…
+  --first-frame <url>    Pin the exact starting frame (ratio is then locked to that image)
   --last-frame <url>     Pin the ending frame (requires --first-frame)
-  --ratio 9:16           Aspect ratio: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
-  --duration 6           Length in seconds (4–15)
-  --resolution 1080p     Quality: 480p | 720p | 1080p
+  --ratio 9:16           Aspect ratio: 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive | auto (default)
+  --duration 6           Length in seconds (4–30 on 2.5, 4–15 on 2.0). Use --duration=-1 for model-chosen
+  --resolution 720p      Quality: 480p | 720p (1080p requires --model 2.0)
+  --model 2.5            2.5 (default) | 2.0 | 2.0-fast
+  --output-format mov    mp4 (default) | mov — Seedance 2.5 only
   --audio                GENERATE a matching audio track (boolean — not a reference)
-  --fast                 Use faster/cheaper model variant
+  --fast                 Use faster/cheaper variant (always Seedance 2.0 Fast)
   --seed 42              Reproducible results
   --camerafixed          No camera movement (product shots)
 ```
 
 **All-round reference (image + video + audio):**
 ```
-/seedance generate the singer [image1] performs on the neon stage, dance timing and
-camera rhythm follow [video1], cuts land on the beats of [audio1]
+/seedance generate the singer @Image1 performs on the neon stage, dance timing and
+camera rhythm follow @Video1, cuts land on the beats of @Audio1
   --image https://example.com/singer.jpg
   --video https://example.com/dance-ref.mp4
   --audio-ref https://example.com/track.mp3
 ```
 
-**Video extension (continue an existing clip):** there is no separate extend
-endpoint — pass the previous output as a `--video` reference and describe the
-continuation. Keep character, scene, and lighting locked.
+**Audio-only generation (Seedance 2.5):** audio can now stand alone as the sole
+reference — no image or video needed. The track drives rhythm, pacing, and cuts.
 ```
-/seedance generate extend [video1] backward by 5 seconds; the woman keeps walking
-down the same corridor, character, background, and lighting unchanged
-  --video https://.../previous-output.mp4
+/seedance generate a dancer moves to the rhythm of @Audio1, neon warehouse,
+handheld camera, cuts land on the downbeats
+  --audio-ref https://example.com/track.mp3 --duration 20
 ```
-For dramas longer than ~15s, prefer **segmented splicing**: generate each
-10–13s beat independently with the *same* reference set + template, then splice
-in an editor. Use extension for single continuous takes (dialogue, one-path
-movement); use splicing for scene changes and fast action.
+
+---
+
+## Edit or extend an existing video (Seedance 2.5)
+
+These are first-class task types on 2.5 with **dedicated tools** —
+`seedance_edit_video` / `seedance_extend_video` (MCP) and `seedance edit` /
+`seedance extend` (CLI). Use them instead of describing the operation through
+`seedance_generate`: each task type locks parameters, and the generic path
+cannot check them, so a mistake fails the task *minutes later* rather than
+immediately.
+
+| | Edit | Extend |
+|---|---|---|
+| What it does | Changes what is **in** the clip — add, remove, replace visuals or audio | Continues the clip forwards or backwards |
+| Aspect ratio | Locked to the source. Not settable. | Locked to the source. Not settable. |
+| Duration | Locked to the source (may run ~0.4s shorter). Not settable. | **Yours to set** — 4–30s, or `-1` |
+| Source clip limits | Must be 4–30s | Up to 10 clips, each 2–30s, ≤30s total |
+
+The model decides which reference video to operate on **from your prompt**, so
+name the target explicitly (`@Video1`) whenever you pass more than one.
+
+```
+/seedance edit Video edit: remove everyone in @Video1 except the protagonist
+  --video https://.../scene.mov
+
+/seedance extend Extend @Video1 — the camera keeps pushing down the corridor,
+character, background, and lighting unchanged
+  --video https://.../previous-output.mov --duration 11
+```
+
+Both default to `--output-format mov`. BytePlus recommends mov for these tasks:
+its higher colour precision (H.264 + YUV444P + PCM) holds audio-video sync
+across the join and survives further grading. For best results, feed mov *in*
+as well as out. Pass `--output-format mp4` when the file must play anywhere —
+mov needs IINA, VLC, mpv, or ffplay.
+
+**Extension vs. splicing.** Seedance 2.5 reaches 30s in a single call, so many
+projects that used to need splicing no longer do. Past 30s, generate each beat
+independently with the *same* reference set + template and splice in an editor.
+Use extension for single continuous takes (dialogue, one-path movement); use
+splicing for scene changes and fast action.
 
 The MCP tool `seedance_generate` handles everything automatically:
 1. Creates an asset group and uploads every plain-HTTPS `--image` reference to the BytePlus asset library (any non-`asset://` URL — not just portraits); `asset://` refs are passed through untouched
-2. Passes any `--video` / `--audio-ref` references through (URL-only, not uploaded) — bound by content role and matched to `[video1]` / `[audio1]` tags
+2. Passes any `--video` / `--audio-ref` references through (URL-only, not uploaded) — bound by content role and matched to `@Video1` / `@Audio1` tags
 3. Submits the generation job
 4. Returns `task_id` — poll `seedance_check_task` every 10–15 seconds until `status == "succeeded"`
 
@@ -239,7 +282,11 @@ The MCP tool `seedance_generate` handles everything automatically:
 /seedance status <task_id>
 ```
 
-Returns `status` (queued | running | succeeded | failed | cancelled) and `video_url` when done.
+Returns `status` (queued | running | succeeded | failed | cancelled) and, when done, `video_url`
+plus `duration`, `ratio`, `resolution`, and `output_format`.
+
+The returned `duration` is the API's approximation — total frames ÷ 24, rounded down — so it can
+read up to a second shorter than the real file. Never treat it as an exact length.
 
 ---
 
@@ -248,6 +295,7 @@ Returns `status` (queued | running | succeeded | failed | cancelled) and `video_
 ```
 /seedance list
 /seedance list --status succeeded
+/seedance list --model 2.5
 /seedance list --limit 20
 ```
 
@@ -311,6 +359,8 @@ best practices for splitting portrait references, and failure recovery.
 |---|---|
 | `seedance_generate` | Full pipeline: upload portraits + submit + return task_id (preferred) |
 | `seedance_check_task` | Poll status, get video_url when succeeded |
+| `seedance_edit_video` | Edit an existing video — add/remove/replace elements (Seedance 2.5) |
+| `seedance_extend_video` | Continue an existing video forwards or backwards (Seedance 2.5) |
 | `seedance_text_to_video` | Fine-grained T2V — returns task_id |
 | `seedance_image_to_video` | Fine-grained I2V with multiple refs — returns task_id |
 | `byteplus_upscale_video` | Upscale/enhance an existing video (AI MediaKit, up to 4K) — returns task_id |
@@ -330,6 +380,19 @@ best practices for splitting portrait references, and failure recovery.
 ## Troubleshooting
 
 **`InputImageSensitiveContentDetected`** — Use `seedance_generate` (auto-uploads to asset library) instead of passing the raw URL to `seedance_image_to_video`.
+
+**`InvalidParameter.TaskTypeConstraint`** — The parameters clashed with the task type the model
+inferred from your prompt. On Seedance 2.5 the aspect ratio is locked to the source for
+first-frame, edit, and extend tasks, and the duration is locked to the source for edits. Resubmit
+with `seedance edit` / `seedance extend` (or `seedance_edit_video` / `seedance_extend_video`),
+which set these for you. This error can arrive *asynchronously* — the task queues, then fails —
+because the model must read the prompt before it can classify the task.
+
+**`Invalid resolution '1080p'`** — Seedance 2.5 tops out at 720p. Either pass `--model 2.0`, or
+generate at 720p and finish with `byteplus_upscale_video` (which reaches 4K).
+
+**Generated .mov won't play** — mov uses professional encoding (H.264 + YUV444P + PCM) that many
+players reject. Open it in IINA, VLC, mpv, or ffplay, or re-run with `--output-format mp4`.
 
 **`ARK_API_KEY not configured`** — Run `seedance auth login` or `export ARK_API_KEY=...`.
 

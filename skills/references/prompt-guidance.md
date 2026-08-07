@@ -1,4 +1,4 @@
-# Prompt Guidance — Seedance 2.0 Optimization Framework
+# Prompt Guidance — Seedance Optimization Framework
 
 This file is the **mandatory pre-submission optimizer**. Before calling
 `seedance_generate` (MCP) / `seedance generate` (CLI), run the user's input
@@ -37,7 +37,7 @@ The optimizer is a **scalpel, not a blender**. Five rules govern every edit:
    Do not rewrite the whole prompt.
 4. **Tag every reference.** If `image_urls=` / `video_urls=` / `audio_urls=`
    are passed to the API, each one **must** appear in the optimized prompt
-   as `[imageN]` / `[videoN]` / `[audioN]` next to the entity it represents.
+   as `@ImageN` / `@VideoN` / `@AudioN` next to the entity it represents.
    Without these tags Seedance cannot bind references to subjects and falls
    back to "use first image as literal first-frame" — which is almost always
    wrong for character / object / style references. See the
@@ -64,7 +64,7 @@ full rebuild.
 
 ## The 6-component formula
 
-Seedance 2.0 honors the **earliest strong instruction**. Default order:
+Seedance honors the **earliest strong instruction**. Default order:
 
 > **`Subject → Action → Environment → Camera → Lighting → Style`** (+ optional Constraints)
 
@@ -91,7 +91,7 @@ preamble + labeled shot list can run longer because each `Shot N:` block acts
 as a local anchor. Trim order: filler adjectives → repeated environment
 details → secondary style tokens → extra camera modifiers. Never cut:
 subject, action, identity refs, shot labels, per-shot sound cues,
-**or reference tags** (`[imageN]` / `[videoN]` / `[audioN]`).
+**or reference tags** (`@ImageN` / `@VideoN` / `@AudioN`).
 
 **Duration is computed, not guessed** — price every prompt with
 [`duration-calculus.md`](duration-calculus.md) before submission.
@@ -110,13 +110,18 @@ immediately after the noun phrase the reference describes.
 
 | Asset arg | Tag for index 0 | Tag for index 1 | … |
 |-----------|-----------------|-----------------|---|
-| `image_urls=[a, b, c]` | `[image1]` | `[image2]` | `[image3]` |
-| `video_urls=[a, b]`    | `[video1]` | `[video2]` | — |
-| `audio_urls=[a]`       | `[audio1]` | — | — |
+| `image_urls=[a, b, c]` | `@Image1` | `@Image2` | `@Image3` |
+| `video_urls=[a, b]`    | `@Video1` | `@Video2` | — |
+| `audio_urls=[a]`       | `@Audio1` | — | — |
 
 Indices are **1-based** and follow the **order of the argument list**
 (positional, not URL-form-specific — `asset://...` portraits use the same
-`[imageN]` tag as plain URLs).
+`@ImageN` tag as plain URLs).
+
+**Tag form differs by model.** Seedance 2.5 uses the `@Image1` / `@Video1` /
+`@Audio1` form shown above; Seedance 2.0 uses the bracket form `[image1]` /
+`[video1]` / `[audio1]`. Match the form to the model you are calling — this repo
+defaults to 2.5, so `@` is the default. Do not mix forms in one prompt.
 
 Chinese prompts may use `[图1]` / `[视频1]` / `[音频1]` instead — pick one
 language style and stay consistent within a single prompt.
@@ -127,7 +132,7 @@ language style and stay consistent within a single prompt.
 |-------------|------------------|--------------------|
 | 0 refs | n/a | T2V — fine |
 | 1 image | no tag | Treats it as **first frame** (I2V default) |
-| 1 image | `[image1]` next to subject | Treats it as a **subject reference** |
+| 1 image | `@Image1` next to subject | Treats it as a **subject reference** |
 | 2+ images | no tags | **First image becomes literal first-frame**, others are guessed at — ❌ this is almost always the wrong behavior |
 | 2+ images | each tagged | References bound correctly to subjects |
 
@@ -143,13 +148,13 @@ Put it **adjacent to the entity** the reference describes, not at the end of
 the sentence. The tag binds locally.
 
 ✅ Good:
-> The Carthaginian commander [image1] in bronze scale armor, sits atop an
-> armored war elephant [image2]. He raises his curved sword high; camera
-> tilts up. Audio bed: [audio1] (battlefield ambience).
+> The Carthaginian commander @Image1 in bronze scale armor, sits atop an
+> armored war elephant @Image2. He raises his curved sword high; camera
+> tilts up. Audio bed: @Audio1 (battlefield ambience).
 
 ❌ Bad (tags floating, no binding):
 > The Carthaginian commander in bronze scale armor sits atop an armored war
-> elephant. He raises his sword. References: [image1], [image2], [audio1].
+> elephant. He raises his sword. References: @Image1, @Image2, @Audio1.
 
 ### Multi-shot prompts
 
@@ -170,18 +175,18 @@ A tag binds a reference to an entity; a **role** says *what* to take from it.
 Seedance fuses multiple references by assigning each a job — you decompose a
 look across several refs instead of cramming one image to do everything:
 
-> Composition from [image1], color grade from [image2], character design from
-> [image3].
+> Composition from @Image1, color grade from @Image2, character design from
+> @Image3.
 
 Common roles: **identity/character**, **composition/framing**, **palette/grade**,
-**material/texture**, **motion/choreography** (`[video1]`), **camera rhythm**
-(`[video1]`), **audio tempo/ambience** (`[audio1]`), **environment/scene**.
+**material/texture**, **motion/choreography** (`@Video1`), **camera rhythm**
+(`@Video1`), **audio tempo/ambience** (`@Audio1`), **environment/scene**.
 
 There is **no numeric strength knob** — adjust adherence with language:
 
-- tighten: `strictly follow the character design from [image1]; do not change
+- tighten: `strictly follow the character design from @Image1; do not change
   the outfit or hairstyle`
-- soften: `loosely inspired by the lighting in [image2], adapted to a sunset`
+- soften: `loosely inspired by the lighting in @Image2, adapted to a sunset`
 
 Default fusion priority when you don't assign roles: text description >
 subject reference > secondary style/scene references. So if a style ref is
@@ -367,7 +372,8 @@ template wouldn't?" That choice is the margin between tie and win.
 
 Trim to the target band. Never cut subject, action, or identity references.
 Then run [`duration-calculus.md`](duration-calculus.md): compute per-shot
-seconds, sum, clamp to 4–15, sanity-check the shot budget. The computed
+seconds, sum, clamp to 4–30 on Seedance 2.5 (4–15 on 2.0), sanity-check the shot
+budget. The computed
 number is the `duration=` argument — report it to the user with the prompt.
 
 ### Step 6 — Final integrity check
@@ -396,7 +402,7 @@ Verify ALL before submitting:
       placed inside the speaker's shot
 - [ ] **Portraits in refs:** uploaded as `asset://` (see [`assets.md`](assets.md))
 - [ ] **Reference tags present:** every URL in `image_urls=` / `video_urls=`
-      / `audio_urls=` is tagged inline as `[imageN]` / `[videoN]` / `[audioN]`
+      / `audio_urls=` is tagged inline as `@ImageN` / `@VideoN` / `@AudioN`
       next to the entity it represents. With 2+ references this is mandatory;
       with 1 reference, choose first-frame (no tag) vs. subject-ref (tagged)
       deliberately
@@ -428,7 +434,7 @@ iterating so you can compare.
 > in the background.
 
 *(Never restate what the image already shows — motion + camera + light changes
-only. Single image with no tag = first-frame default. Add `[image1]` only if
+only. Single image with no tag = first-frame default. Add `@Image1` only if
 you want it treated as a styled subject reference instead of a literal first
 frame.)*
 
@@ -443,15 +449,15 @@ front-loaded (rule 5), is what actually animates a static source.
 
 ### R2V — motion transfer
 
-> Transfer the dance timing and camera rhythm from [video1] to the singer
-> [image1]. Stage neon-lit, cuts aligned to the beat. One orbit move per
+> Transfer the dance timing and camera rhythm from @Video1 to the singer
+> @Image1. Stage neon-lit, cuts aligned to the beat. One orbit move per
 > chorus, otherwise locked-off.
 
 ### V2V — face swap
 
-> Replace the face of the woman in [video1] with the face from the portrait
-> [image1]. Preserve original body motion, background, clothing, and lighting
-> from [video1]. Match skin tone and hairline blending. Static camera carried
+> Replace the face of the woman in @Video1 with the face from the portrait
+> @Image1. Preserve original body motion, background, clothing, and lighting
+> from @Video1. Match skin tone and hairline blending. Static camera carried
 > over from source.
 
 ### Multi-shot (the `Shot N:` grammar)
@@ -462,17 +468,17 @@ Color grade: golden magic-hour, deep contrast. Lighting: low backlit sun
 creating strong rim light, dust glowing in light rays, heat shimmer.
 Atmosphere: drifting sand, banners in the wind.
 
-The commander [image1] in bronze scale armor sits atop an armored war
-elephant [image2].
+The commander @Image1 in bronze scale armor sits atop an armored war
+elephant @Image2.
 
-Shot 1 (≈4s): Wide rear tracking shot — the commander [image1] on the
-elephant [image2] surveys the battlefield from a dune ridge, army stretched
+Shot 1 (≈4s): Wide rear tracking shot — the commander @Image1 on the
+elephant @Image2 surveys the battlefield from a dune ridge, army stretched
 behind him. Wind, low rumble.
 Shot 2 (≈5s): Medium close-up — he tightens his grip on the curved sword and
 raises it high; camera tilts up with the motion, then he shouts: "For
 Carthage!" Rising rumble, wind surge under the shout.
 Shot 3 (≈5s): Dynamic forward tracking — cavalry and infantry charge past
-the elephant [image2], dust exploding skyward. Thunder of hooves, battle
+the elephant @Image2, dust exploding skyward. Thunder of hooves, battle
 cries.
 ```
 
@@ -531,7 +537,7 @@ shot's action gets skipped: fewer shots or more seconds.
 ### Example 5 — Multi-shot historical sequence (convert timestamps, tag refs)
 
 **Setup:** the user passes `image_urls=[commander_portrait_url, war_elephant_url]`
-(so `[image1]` = commander, `[image2]` = elephant) plus a 6-beat timestamp
+(so `@Image1` = commander, `@Image2` = elephant) plus a 6-beat timestamp
 timeline naming a real actor.
 
 **What's wrong with the raw input:**
@@ -562,26 +568,26 @@ the dialogue line. **Do not collapse to one paragraph.**
 > dust glowing in light rays, heat shimmer. Atmosphere: drifting sand,
 > layered dust haze, banners moving in wind.
 >
-> The Carthaginian commander [image1] — a tall, weathered general in bronze
+> The Carthaginian commander @Image1 — a tall, weathered general in bronze
 > scale armor and a crimson cloak, dark beard, sun-darkened skin — sits atop
-> an armored war elephant [image2].
+> an armored war elephant @Image2.
 >
-> Shot 1 (≈5s): Wide rear tracking shot — the commander [image1] sits high
-> on the elephant [image2] on a dune ridge, his army stretched along the
+> Shot 1 (≈5s): Wide rear tracking shot — the commander @Image1 sits high
+> on the elephant @Image2 on a dune ridge, his army stretched along the
 > ridgeline behind him, Roman lines far across the dust plains; he turns
 > slightly, scanning them, focused. Wind, armor movement, low rumble.
-> Shot 2 (≈5s): Low-angle medium close-up — he [image1] tightens his grip on
+> Shot 2 (≈5s): Low-angle medium close-up — he @Image1 tightens his grip on
 > the curved sword, raises it high, camera tilting up with the motion, and
 > shouts clearly: "For Carthage!" Sun flares behind him. Rising rumble, wind
 > surge under the shout.
 > Shot 3 (≈5s): Dynamic forward tracking — the army roars back and charges:
-> cavalry and infantry sweep past the commander [image1] and the elephant
-> [image2], dust exploding skyward. Unified battle cry, thunder of hooves.
+> cavalry and infantry sweep past the commander @Image1 and the elephant
+> @Image2, dust exploding skyward. Unified battle cry, thunder of hooves.
 
 **What changed vs. raw:**
 - `actor Denzel Washington` → original character description (safety rewrite,
   surgical span only)
-- **Added `[image1]` and `[image2]` tags** at first introduction and at
+- **Added `@Image1` and `@Image2` tags** at first introduction and at
   identity-critical shots
 - **Six timestamp beats → three labeled shots** honoring the shot budget;
   adjacent beats with the same framing intent were merged (survey + scan,

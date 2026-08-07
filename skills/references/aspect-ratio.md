@@ -52,6 +52,51 @@ Separate the composition from the platform:
 - Title cards, packshots, captions, legal text → clean visual plate + post-added
   typography, not generated text.
 
+## What the API accepts (`--ratio` / `ratio=`)
+
+The creative table above is design vocabulary; the API takes a fixed set:
+`21:9`, `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `adaptive`. Map 2.39:1 and 1.85:1
+onto `21:9`, and 4:5 onto `3:4`, then compose for the difference.
+
+The SDK/CLI/MCP default is `auto`, which is **not** an API value — it resolves
+to `adaptive` for task types that require it and `16:9` otherwise. Leaving
+`ratio` unset is the safe move.
+
+### Ratio is locked for three task types on Seedance 2.5
+
+| Task type | Ratio | Why |
+|---|---|---|
+| First frame / first+last frame | **`adaptive` only** | Output matches the first-frame image |
+| Video edit | **`adaptive` only** | Output matches the clip being edited |
+| Video extend | **`adaptive` only** | Output matches the clip being extended |
+| Text-to-video, reference-to-video | any value | Nothing to inherit from |
+
+Passing `16:9` to a first-frame job on 2.5 raises a `ValidationError` before
+submission. If it reaches the API — because the model classified an edit or
+extend from the *prompt* rather than the parameters — it comes back as
+`InvalidParameter.TaskTypeConstraint` **asynchronously**, after the task has
+queued and been consumed. Seedance 2.0 had none of these restrictions.
+
+**Practical consequence:** on 2.5 you choose the delivery ratio when you make
+the *source* asset, not when you animate it. A 9:16 vertical cut of a
+16:9 first-frame job is a post-production crop, not a generation parameter.
+
+### Pixel dimensions
+
+| Ratio | 480p | 720p |
+|---|---|---|
+| 16:9 | 854×480 | 1280×720 |
+| 4:3 | 752×560 | 1112×834 |
+| 1:1 | 640×640 | 960×960 |
+| 3:4 | 560×752 | 834×1112 |
+| 9:16 | 480×854 | 720×1280 |
+| 21:9 | 992×432 | 1470×630 |
+
+Seedance 2.5 has no 1080p tier. For a higher-resolution master, generate at
+720p and finish with `byteplus_upscale_video` (up to 4K) — that path beats
+Seedance 2.0's native 1080p on detail. Only drop back to `--model 2.0` when you
+specifically need 1080p straight out of generation.
+
 ## Caveat
 
 Plan ratio and crop strategy here, but the buyer / broadcaster / festival spec

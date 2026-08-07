@@ -7,15 +7,18 @@ from typing import Any
 
 from .asset import AssetClient
 from .config import (
-    BASE_URL, DEFAULT_MODEL, FAST_MODEL, INCLUDE_RAW,
-    MAX_REFERENCE_AUDIO, MAX_REFERENCE_IMAGES, MAX_REFERENCE_VIDEOS,
-    MODELS, PAGE_SIZE_MAX, POLL_TIMEOUT, SUBMIT_TIMEOUT, TERMINAL_STATUSES,
-    TOS_DEFAULT_BUCKET, TOS_ENDPOINT, TOS_REGION,
-    __version__, model_caps,
+    BASE_URL, DEFAULT_MODEL, DURATION_AUTO, FAST_MODEL, INCLUDE_RAW,
+    LEGACY_MODEL, MODELS, OUTPUT_FORMATS, PAGE_SIZE_MAX, POLL_TIMEOUT,
+    RATIO_AUTO, SUBMIT_TIMEOUT, TASK_TYPE_AUTO, TASK_TYPE_EDIT,
+    TASK_TYPE_EXTEND, TASK_TYPE_FIRST_FRAME, TASK_TYPE_REFERENCE, TASK_TYPES,
+    TERMINAL_STATUSES, TOS_DEFAULT_BUCKET, TOS_ENDPOINT, TOS_REGION,
+    __version__, is_seedance_25, model_caps, resolve_model,
 )
 from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
 from .exceptions import StorageError, ValidationError
-from .http import extract_nested, extract_video_url, request_with_retry
+from .http import (
+    extract_nested, extract_output_field, extract_video_url, request_with_retry,
+)
 from .mediakit import MediaKitClient
 from .tos import TOSClient
 from .types import (
@@ -27,7 +30,7 @@ logger = logging.getLogger("seedance")
 
 
 class SeedanceClient:
-    """Client for BytePlus Seedance 2.0 video generation.
+    """Client for BytePlus Seedance video generation (2.5 by default, 2.0 opt-in).
 
     Credentials are resolved in priority order: explicit args → env vars →
     ~/.seedance/credentials file → legacy ark_api_key.txt.
@@ -36,6 +39,12 @@ class SeedanceClient:
         client = SeedanceClient()   # picks up creds automatically
         result = client.generate(prompt="A sunrise over mountains", ratio="16:9")
         print(result.task_id)
+
+        # Seedance 2.5 video editing / extension
+        result = client.submit_video_edit(
+            "Video edit: remove everyone in @Video1 except the protagonist.",
+            video_urls=["https://example.com/clip.mov"],
+        )
     """
 
     def __init__(
@@ -110,27 +119,125 @@ class SeedanceClient:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _pick_model(model: str = "", fast_mode: bool = False) -> str:
+        """Resolve the model ID from an explicit selection and/or fast_mode.
+
+        fast_mode wins over an explicit model: there is no Seedance 2.5 fast
+        variant, so fast_mode always resolves to the 2.0 fast model.
+        """
+        if fast_mode:
+            return FAST_MODEL
+        return resolve_model(model)
+
+    @staticmethod
+    def _infer_task_type(
+        task_type: str,
+        *,
+        first_frame_url: str = "",
+        last_frame_url: str = "",
+    ) -> str:
+        """Normalise the caller's task_type hint.
+
+        A first-frame URL is decisive — the API classifies by content role
+        before it ever looks at the prompt — so it overrides 'auto'.
+        """
+        if task_type not in TASK_TYPES:
+            raise ValidationError(
+                f"Invalid task_type {task_type!r}. Must be one of: "
+                f"{', '.join(sorted(TASK_TYPES))}"
+            )
+        if first_frame_url or last_frame_url:
+            return TASK_TYPE_FIRST_FRAME
+        return task_type
+
+    @staticmethod
+    def _resolve_ratio(ratio: str, task_type: str, model: str) -> str:
+        """Turn the 'auto' sentinel into a concrete ratio, and reject ratios
+        that the task type forbids.
+
+        Seedance 2.5 locks the output ratio to the source material for
+        first-frame, edit, and extend tasks — those accept only 'adaptive'.
+        Rejecting here converts an asynchronous InvalidParameter.TaskTypeConstraint
+        failure (returned minutes later, after the task is consumed) into an
+        immediate error.
+        """
+        caps = model_caps(model)
+        adaptive_only = task_type in caps.get("adaptive_only_task_types", [])
+
+        if ratio == RATIO_AUTO or not ratio:
+            return "adaptive" if adaptive_only else "16:9"
+        if adaptive_only and ratio != "adaptive":
+            raise ValidationError(
+                f"ratio must be 'adaptive' for {task_type} tasks on {model} — got {ratio!r}. "
+                "The output ratio is locked to the source image or video. "
+                "Pass ratio='adaptive' or leave it unset."
+            )
+        if ratio not in caps["ratios"]:
+            raise ValidationError(
+                f"Invalid ratio {ratio!r}. Must be one of: {', '.join(sorted(caps['ratios']))}"
+            )
+        return ratio
+
+    @staticmethod
     def _validate(
         ratio: str,
         duration: int,
         resolution: str,
         model: str,
+        *,
+        task_type: str = TASK_TYPE_AUTO,
+        output_format: str = "",
+        camerafixed: bool = False,
     ) -> None:
+        """Validate the request envelope against the model's capabilities.
+
+        `ratio` must already be resolved by _resolve_ratio.
+        """
         caps = model_caps(model)
         if ratio not in caps["ratios"]:
             raise ValidationError(
                 f"Invalid ratio {ratio!r}. Must be one of: {', '.join(sorted(caps['ratios']))}"
             )
+
         dur_min, dur_max = caps["duration_range"]
-        if not dur_min <= duration <= dur_max:
+        auto_duration_only = task_type in caps.get("auto_duration_only_task_types", [])
+        if auto_duration_only and duration != DURATION_AUTO:
             raise ValidationError(
-                f"Invalid duration {duration}. Must be {dur_min}–{dur_max}s for model {model}."
+                f"duration must be -1 for {task_type} tasks on {model} — got {duration}. "
+                "The output duration is locked to the source video. "
+                "Pass duration=-1 or leave it unset."
             )
+        if duration == DURATION_AUTO:
+            if not caps.get("supports_duration_auto", False):
+                raise ValidationError(
+                    f"duration=-1 (model-chosen) is not supported by {model}. "
+                    f"Pass an integer between {dur_min} and {dur_max}."
+                )
+        elif not dur_min <= duration <= dur_max:
+            raise ValidationError(
+                f"Invalid duration {duration}. Must be {dur_min}–{dur_max}s "
+                f"(or -1 to let the model choose) for model {model}."
+            )
+
         if resolution not in caps["resolutions"]:
             raise ValidationError(
-                f"Invalid resolution {resolution!r}. "
-                f"Must be one of: {', '.join(sorted(caps['resolutions']))}"
+                f"Invalid resolution {resolution!r} for {model}. "
+                f"Must be one of: {', '.join(caps['resolutions'])}"
             )
+
+        if output_format:
+            if not caps.get("supports_output_format", False):
+                raise ValidationError(
+                    f"output_format is not supported by {model} (Seedance 2.5 only)."
+                )
+            if output_format not in OUTPUT_FORMATS:
+                raise ValidationError(
+                    f"Invalid output_format {output_format!r}. "
+                    f"Must be one of: {', '.join(sorted(OUTPUT_FORMATS))}"
+                )
+
+        if camerafixed and not caps.get("supports_camerafixed", False):
+            raise ValidationError(f"camerafixed is not supported by {model}.")
 
     # ------------------------------------------------------------------
     # Payload builders
@@ -163,13 +270,21 @@ class SeedanceClient:
         image_urls: list[str] | None,
         video_urls: list[str] | None,
         audio_urls: list[str] | None,
+        model: str = DEFAULT_MODEL,
     ) -> None:
-        """Enforce Seedance 2.0 all-round-reference budgets and reject empty
-        entries. Reference videos and audio are URL-only (no asset upload)."""
+        """Enforce the model's all-round-reference budgets and reject empty
+        entries. Reference videos and audio are URL-only (no asset upload).
+
+        Per-clip and total media duration limits (30s each on 2.5, 15s on 2.0)
+        are enforced server-side — validating them here would mean downloading
+        and probing every reference.
+        """
+        caps = model_caps(model)
+        label_text = caps["label"]
         for label, urls, limit in (
-            ("image_urls", image_urls, MAX_REFERENCE_IMAGES),
-            ("video_urls", video_urls, MAX_REFERENCE_VIDEOS),
-            ("audio_urls", audio_urls, MAX_REFERENCE_AUDIO),
+            ("image_urls", image_urls, caps["max_reference_images"]),
+            ("video_urls", video_urls, caps["max_reference_videos"]),
+            ("audio_urls", audio_urls, caps["max_reference_audio"]),
         ):
             if not urls:
                 continue
@@ -177,16 +292,52 @@ class SeedanceClient:
                 raise ValidationError(f"{label} contains an empty entry.")
             if len(urls) > limit:
                 raise ValidationError(
-                    f"Too many {label}: {len(urls)} (max {limit} for Seedance 2.0)."
+                    f"Too many {label}: {len(urls)} (max {limit} for {label_text})."
                 )
 
     @staticmethod
-    def _extra_params(seed: int | None, camerafixed: bool) -> dict:
+    def _require_references(
+        model: str,
+        *,
+        image_urls: list[str] | None,
+        first_frame_url: str,
+        last_frame_url: str,
+        video_urls: list[str] | None,
+        audio_urls: list[str] | None,
+    ) -> None:
+        """Ensure at least one reference is present.
+
+        Seedance 2.5 accepts audio-only input; 2.0 requires at least one visual
+        reference to accompany any audio.
+        """
+        if image_urls or first_frame_url or last_frame_url or video_urls:
+            return
+        if audio_urls and model_caps(model).get("supports_audio_only", False):
+            return
+        if audio_urls:
+            raise ValidationError(
+                f"{model_caps(model)['label']} does not support audio-only input. "
+                "Pair audio_urls with image_urls, video_urls, or a first frame "
+                "(audio-only generation requires Seedance 2.5)."
+            )
+        raise ValidationError(
+            "Provide at least one of: image_urls, first_frame_url, "
+            "first_frame_url+last_frame_url, video_urls, or audio_urls (2.5 only)."
+        )
+
+    @staticmethod
+    def _extra_params(
+        seed: int | None,
+        camerafixed: bool,
+        output_format: str = "",
+    ) -> dict:
         params: dict = {}
         if seed is not None:
             params["seed"] = seed
         if camerafixed:
             params["camerafixed"] = True
+        if output_format:
+            params["output_format"] = output_format
         return params
 
     # ------------------------------------------------------------------
@@ -197,18 +348,33 @@ class SeedanceClient:
         self,
         prompt: str,
         *,
-        ratio: str = "16:9",
+        ratio: str = RATIO_AUTO,
         duration: int = 5,
         resolution: str = "720p",
         generate_audio: bool = False,
         fast_mode: bool = False,
+        model: str = "",
+        output_format: str = "",
         seed: int | None = None,
         camerafixed: bool = False,
     ) -> TaskResult:
-        """Submit a text-to-video job. Returns immediately with task_id."""
+        """Submit a text-to-video job. Returns immediately with task_id.
+
+        Args:
+            ratio: Aspect ratio, or 'auto' to let the SDK pick (16:9 here).
+            duration: Seconds, or -1 to let the model choose within its range.
+            model: Model ID or alias ('2.5', '2.0', '2.0-fast'). Defaults to 2.5.
+            output_format: 'mp4' or 'mov' (Seedance 2.5 only).
+        """
         cid = self._cid()
-        model = FAST_MODEL if fast_mode else DEFAULT_MODEL
-        self._validate(ratio, duration, resolution, model)
+        model = self._pick_model(model, fast_mode)
+        ratio = self._resolve_ratio(ratio, TASK_TYPE_REFERENCE, model)
+        self._validate(
+            ratio, duration, resolution, model,
+            task_type=TASK_TYPE_REFERENCE,
+            output_format=output_format,
+            camerafixed=camerafixed,
+        )
 
         payload = {
             "model": model,
@@ -218,9 +384,11 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed),
+            **self._extra_params(seed, camerafixed, output_format),
         }
-        logger.info("[%s] T2V | ratio=%s dur=%ss res=%s", cid, ratio, duration, resolution)
+        logger.info(
+            "[%s] T2V | model=%s ratio=%s dur=%ss res=%s", cid, model, ratio, duration, resolution
+        )
         resp = self._http(
             "/contents/generations/tasks",
             method="POST",
@@ -232,6 +400,7 @@ class SeedanceClient:
             task_id=resp.get("id") or resp.get("task_id", ""),
             status=resp.get("status", "queued"),
             mode="T2V",
+            model=model,
             raw=resp,
         )
 
@@ -244,34 +413,61 @@ class SeedanceClient:
         last_frame_url: str = "",
         video_urls: list[str] | None = None,
         audio_urls: list[str] | None = None,
-        ratio: str = "16:9",
+        ratio: str = RATIO_AUTO,
         duration: int = 5,
         resolution: str = "720p",
         generate_audio: bool = False,
         fast_mode: bool = False,
+        model: str = "",
+        output_format: str = "",
+        task_type: str = TASK_TYPE_AUTO,
         seed: int | None = None,
         camerafixed: bool = False,
     ) -> TaskResult:
         """Submit a reference-to-video job (image / video / audio references).
 
         Returns immediately with task_id. Video and audio references are bound
-        by their content[] role; to *extend* an existing clip, pass that clip
-        as a reference_video and describe the continuation in the prompt.
+        by their content[] role; to *extend* or *edit* an existing clip, pass it
+        as a reference_video and describe the operation in the prompt — or use
+        submit_video_extend / submit_video_edit, which apply the parameter
+        constraints those task types carry.
+
+        Args:
+            ratio: Aspect ratio, or 'auto' to resolve from the task type.
+            duration: Seconds, or -1 to let the model choose.
+            model: Model ID or alias ('2.5', '2.0', '2.0-fast'). Defaults to 2.5.
+            output_format: 'mp4' or 'mov' (Seedance 2.5 only).
+            task_type: Hint used only for local validation — 'edit'/'extend'
+                       apply the ratio and duration constraints those task types
+                       require, catching violations before submission.
         """
         cid = self._cid()
-        model = FAST_MODEL if fast_mode else DEFAULT_MODEL
-        self._validate(ratio, duration, resolution, model)
+        model = self._pick_model(model, fast_mode)
 
-        if not image_urls and not first_frame_url and not last_frame_url and not video_urls:
-            raise ValidationError(
-                "Provide at least one of: image_urls, first_frame_url, "
-                "first_frame_url+last_frame_url, or video_urls."
-            )
         if last_frame_url and not first_frame_url:
             raise ValidationError(
                 "last_frame_url requires first_frame_url. The API does not support last-frame-only mode."
             )
-        self._validate_refs(image_urls, video_urls, audio_urls)
+        self._require_references(
+            model,
+            image_urls=image_urls,
+            first_frame_url=first_frame_url,
+            last_frame_url=last_frame_url,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
+        )
+        self._validate_refs(image_urls, video_urls, audio_urls, model)
+
+        task_type = self._infer_task_type(
+            task_type, first_frame_url=first_frame_url, last_frame_url=last_frame_url
+        )
+        ratio = self._resolve_ratio(ratio, task_type, model)
+        self._validate(
+            ratio, duration, resolution, model,
+            task_type=task_type,
+            output_format=output_format,
+            camerafixed=camerafixed,
+        )
 
         has_first = bool(first_frame_url)
         has_last = bool(last_frame_url)
@@ -281,6 +477,8 @@ class SeedanceClient:
         mode = (
             "I2V-FirstLastFrame" if has_first and has_last
             else "I2V-FirstFrame" if has_first
+            else f"V2V-Edit(vid={nv})" if task_type == TASK_TYPE_EDIT
+            else f"V2V-Extend(vid={nv})" if task_type == TASK_TYPE_EXTEND
             else f"R2V-Reference(img={n},vid={nv},aud={na})"
         )
 
@@ -299,9 +497,12 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed),
+            **self._extra_params(seed, camerafixed, output_format),
         }
-        logger.info("[%s] I2V | mode=%s ratio=%s dur=%ss res=%s", cid, mode, ratio, duration, resolution)
+        logger.info(
+            "[%s] I2V | model=%s mode=%s ratio=%s dur=%ss res=%s",
+            cid, model, mode, ratio, duration, resolution,
+        )
         resp = self._http(
             "/contents/generations/tasks",
             method="POST",
@@ -313,6 +514,7 @@ class SeedanceClient:
             task_id=resp.get("id") or resp.get("task_id", ""),
             status=resp.get("status", "queued"),
             mode=mode,
+            model=model,
             raw=resp,
         )
 
@@ -321,15 +523,19 @@ class SeedanceClient:
         prompt: str,
         *,
         image_url: str = "",
+        image_urls: list[str] | None = None,
         first_frame_url: str = "",
         last_frame_url: str = "",
         video_urls: list[str] | None = None,
         audio_urls: list[str] | None = None,
-        ratio: str = "16:9",
+        ratio: str = RATIO_AUTO,
         duration: int = 5,
         resolution: str = "720p",
         generate_audio: bool = False,
         fast_mode: bool = False,
+        model: str = "",
+        output_format: str = "",
+        task_type: str = TASK_TYPE_AUTO,
         seed: int | None = None,
         camerafixed: bool = False,
         asset_group_id: str = "",
@@ -339,35 +545,52 @@ class SeedanceClient:
         library before submitting the generation job.
 
         Pipeline:
-          1. If image_url is a plain HTTPS URL:
-               a. Create asset group (or reuse asset_group_id)
-               b. Upload image and poll until Active
-          2. If image_url already starts with "asset://", skip upload.
+          1. For each plain HTTPS reference image:
+               a. Create asset group once (or reuse asset_group_id)
+               b. Upload the image and poll until Active
+          2. Images already given as "asset://" refs skip the upload.
           3. Submit generation job.
           4. Return GenerateResult with task_id — poll check_task() to get video_url.
+
+        `image_url` (single) and `image_urls` (list) are combined, in that order,
+        so the reference tags in the prompt line up with argument order.
 
         The optional on_progress callback receives (step: str, detail: str) after
         each pipeline stage — used by the CLI to drive a progress display without
         coupling the SDK to Rich or any output library.
         """
         cid = self._cid()
-        model = FAST_MODEL if fast_mode else DEFAULT_MODEL
-        self._validate(ratio, duration, resolution, model)
+        model = self._pick_model(model, fast_mode)
 
         if last_frame_url and not first_frame_url:
             raise ValidationError(
                 "last_frame_url requires first_frame_url. The API does not support last-frame-only mode."
             )
-        self._validate_refs(None, video_urls, audio_urls)
+
+        all_image_urls = [u for u in ([image_url] if image_url else []) + list(image_urls or []) if u]
+        self._validate_refs(all_image_urls, video_urls, audio_urls, model)
+
+        task_type = self._infer_task_type(
+            task_type, first_frame_url=first_frame_url, last_frame_url=last_frame_url
+        )
+        ratio = self._resolve_ratio(ratio, task_type, model)
+        self._validate(
+            ratio, duration, resolution, model,
+            task_type=task_type,
+            output_format=output_format,
+            camerafixed=camerafixed,
+        )
 
         steps: list[dict] = []
-        resolved_image_url = image_url
-        asset_id_used = ""
+        asset_ids_used: list[str] = []
+        resolved_image_urls: list[str] = []
 
-        # --- Asset upload pipeline (only for plain HTTPS image_urls) ---
-        if image_url and not image_url.startswith("asset://"):
+        # --- Asset upload pipeline (only for plain HTTPS image URLs) ---
+        pending_uploads = [u for u in all_image_urls if not u.startswith("asset://")]
+        group_id = asset_group_id
+
+        if pending_uploads:
             ac = self._asset_client()
-            group_id = asset_group_id
 
             if not group_id:
                 group_name = f"seedance-{cid}"
@@ -385,18 +608,25 @@ class SeedanceClient:
                 if on_progress:
                     on_progress("asset_poll", f"{aid}:{status}")
 
-            asset_id_used = ac.upload_and_wait(
-                image_url, group_id,
-                correlation_id=cid,
-                on_poll=_asset_poll_cb,
-            )
-            resolved_image_url = f"asset://{asset_id_used}"
-            steps.append({"step": "upload_asset", "asset_id": asset_id_used, "outcome": "Active"})
-            if on_progress:
-                on_progress("upload_asset", asset_id_used)
+            for url in all_image_urls:
+                if url.startswith("asset://"):
+                    resolved_image_urls.append(url)
+                    continue
+                asset_id = ac.upload_and_wait(
+                    url, group_id,
+                    correlation_id=cid,
+                    on_poll=_asset_poll_cb,
+                )
+                asset_ids_used.append(asset_id)
+                resolved_image_urls.append(f"asset://{asset_id}")
+                steps.append({"step": "upload_asset", "asset_id": asset_id, "outcome": "Active"})
+                if on_progress:
+                    on_progress("upload_asset", asset_id)
+        else:
+            resolved_image_urls = list(all_image_urls)
 
         # --- Determine mode and submit ---
-        has_image = bool(resolved_image_url)
+        has_image = bool(resolved_image_urls)
         has_first = bool(first_frame_url)
         has_last = bool(last_frame_url)
         has_av = bool(video_urls or audio_urls)
@@ -408,7 +638,7 @@ class SeedanceClient:
                 else "R2V-Reference" if has_av
                 else "I2V-Reference"
             )
-            image_urls_payload = [resolved_image_url] if has_image else None
+            image_urls_payload = resolved_image_urls or None
         else:
             mode = "T2V"
             image_urls_payload = None
@@ -428,10 +658,13 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed),
+            **self._extra_params(seed, camerafixed, output_format),
         }
 
-        logger.info("[%s] Submitting | mode=%s ratio=%s dur=%ss res=%s", cid, mode, ratio, duration, resolution)
+        logger.info(
+            "[%s] Submitting | model=%s mode=%s ratio=%s dur=%ss res=%s",
+            cid, model, mode, ratio, duration, resolution,
+        )
         resp = self._http(
             "/contents/generations/tasks",
             method="POST",
@@ -448,9 +681,119 @@ class SeedanceClient:
             task_id=task_id,
             status=resp.get("status", "queued"),
             mode=mode,
+            model=model,
             steps=steps,
-            asset_id=asset_id_used,
+            asset_id=asset_ids_used[0] if asset_ids_used else "",
+            asset_ids=asset_ids_used,
             raw=resp,
+        )
+
+    # ------------------------------------------------------------------
+    # Seedance 2.5 task types: video edit and video extension
+    # ------------------------------------------------------------------
+
+    def submit_video_edit(
+        self,
+        prompt: str,
+        video_urls: list[str],
+        *,
+        image_urls: list[str] | None = None,
+        audio_urls: list[str] | None = None,
+        resolution: str = "720p",
+        generate_audio: bool = True,
+        model: str = "",
+        output_format: str = "mov",
+        seed: int | None = None,
+    ) -> TaskResult:
+        """Edit an existing video (Seedance 2.5 only).
+
+        Add, remove, or replace elements in the visuals or audio of a reference
+        video — e.g. "Video edit: remove everyone in @Video1 except the
+        protagonist." The model picks the video to edit from the prompt, so name
+        it explicitly when passing more than one.
+
+        Ratio and duration are locked to the source video and are not settable:
+        the request always sends ratio='adaptive' and duration=-1. The output may
+        run up to ~0.4s shorter than the input because of input-frame handling,
+        and the source video must itself be 4–30s.
+
+        `output_format` defaults to 'mov' — the format BytePlus recommends for
+        edit tasks, since its higher colour precision keeps audio and video in
+        sync and survives further post-processing. Pass 'mp4' for a
+        broadly-playable file instead.
+        """
+        model = self._pick_model(model)
+        if not is_seedance_25(model):
+            raise ValidationError(
+                f"Video editing requires Seedance 2.5 — {model} does not support it. "
+                "Pass model='2.5' or leave model unset."
+            )
+        if not video_urls:
+            raise ValidationError("video_urls is required for a video edit task.")
+
+        return self.submit_image_to_video(
+            prompt,
+            image_urls=image_urls,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
+            ratio="adaptive",
+            duration=DURATION_AUTO,
+            resolution=resolution,
+            generate_audio=generate_audio,
+            model=model,
+            output_format=output_format,
+            task_type=TASK_TYPE_EDIT,
+            seed=seed,
+        )
+
+    def submit_video_extend(
+        self,
+        prompt: str,
+        video_urls: list[str],
+        *,
+        duration: int = DURATION_AUTO,
+        image_urls: list[str] | None = None,
+        audio_urls: list[str] | None = None,
+        resolution: str = "720p",
+        generate_audio: bool = True,
+        model: str = "",
+        output_format: str = "mov",
+        seed: int | None = None,
+    ) -> TaskResult:
+        """Extend an existing video forwards or backwards (Seedance 2.5 only).
+
+        Describe the continuation in the prompt — e.g. "Extend @Video1, then
+        after the window opens, enter the gallery in @Video2." The model picks
+        the video to extend from the prompt.
+
+        Ratio is locked to the source video (always sent as 'adaptive').
+        Duration is settable: 4–30s, or -1 to let the model choose.
+
+        `output_format` defaults to 'mov' for the same audio-video sync reasons
+        as submit_video_edit.
+        """
+        model = self._pick_model(model)
+        if not is_seedance_25(model):
+            raise ValidationError(
+                f"Video extension requires Seedance 2.5 — {model} does not support it. "
+                "Pass model='2.5' or leave model unset."
+            )
+        if not video_urls:
+            raise ValidationError("video_urls is required for a video extension task.")
+
+        return self.submit_image_to_video(
+            prompt,
+            image_urls=image_urls,
+            video_urls=video_urls,
+            audio_urls=audio_urls,
+            ratio="adaptive",
+            duration=duration,
+            resolution=resolution,
+            generate_audio=generate_audio,
+            model=model,
+            output_format=output_format,
+            task_type=TASK_TYPE_EXTEND,
+            seed=seed,
         )
 
     # ------------------------------------------------------------------
@@ -468,11 +811,17 @@ class SeedanceClient:
             correlation_id=cid,
         )
         status = resp.get("status", "unknown")
+        duration = extract_output_field(resp, "duration")
         return TaskResult(
             task_id=task_id,
             status=status,
             video_url=extract_video_url(resp),
             error=resp.get("error") if status in TERMINAL_STATUSES else None,
+            model=str(resp.get("model") or ""),
+            duration=int(duration) if isinstance(duration, (int, float)) else None,
+            ratio=extract_output_field(resp, "ratio"),
+            resolution=extract_output_field(resp, "resolution"),
+            output_format=extract_output_field(resp, "output_format"),
             raw=resp,
         )
 
@@ -481,13 +830,19 @@ class SeedanceClient:
         page_num: int = 1,
         page_size: int = 10,
         status_filter: str = "",
+        model_filter: str = "",
     ) -> dict[str, Any]:
-        """List recent tasks with optional status filter."""
+        """List recent tasks, optionally filtered by status and/or model.
+
+        `model_filter` accepts an alias ('2.5') or a full model ID.
+        """
         page_size = min(max(1, page_size), PAGE_SIZE_MAX)
         cid = self._cid()
         qs = f"page_num={page_num}&page_size={page_size}"
         if status_filter:
             qs += f"&filter.status={status_filter}"
+        if model_filter:
+            qs += f"&filter.model={resolve_model(model_filter)}"
 
         resp = self._http(
             f"/contents/generations/tasks?{qs}",
@@ -504,6 +859,8 @@ class SeedanceClient:
                     task_id=t.get("id", ""),
                     status=t.get("status", ""),
                     video_url=extract_video_url(t),
+                    model=str(t.get("model") or ""),
+                    output_format=extract_output_field(t, "output_format"),
                 )
                 for t in tasks
             ],
@@ -708,6 +1065,7 @@ class SeedanceClient:
         return {
             "default_model": DEFAULT_MODEL,
             "fast_model": FAST_MODEL,
+            "legacy_model": LEGACY_MODEL,
             "models": [
                 {
                     "model_id": mid,
@@ -716,11 +1074,27 @@ class SeedanceClient:
                     "resolutions": caps["resolutions"],
                     "ratios": caps["ratios"],
                     "duration_range": caps["duration_range"],
+                    "reference_limits": {
+                        "images": caps["max_reference_images"],
+                        "videos": caps["max_reference_videos"],
+                        "audio": caps["max_reference_audio"],
+                        "seconds_per_clip": caps["max_reference_media_seconds"],
+                        "seconds_total": caps["max_reference_media_total_seconds"],
+                    },
+                    "output_formats": (
+                        sorted(OUTPUT_FORMATS)
+                        if caps.get("supports_output_format") else ["mp4"]
+                    ),
                     "features": {
                         "first_frame": caps.get("supports_first_frame", False),
                         "last_frame": caps.get("supports_last_frame", False),
                         "camerafixed": caps.get("supports_camerafixed", False),
                         "seed": caps.get("supports_seed", False),
+                        "auto_duration": caps.get("supports_duration_auto", False),
+                        "audio_only_input": caps.get("supports_audio_only", False),
+                        "output_format": caps.get("supports_output_format", False),
+                        "video_edit": is_seedance_25(mid),
+                        "video_extend": is_seedance_25(mid),
                     },
                 }
                 for mid, caps in MODELS.items()

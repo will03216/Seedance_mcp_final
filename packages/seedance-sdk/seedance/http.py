@@ -7,14 +7,57 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import time
 from typing import Any
 from urllib import error, request
 
 from .config import MAX_RETRIES, POLL_TIMEOUT
-from .exceptions import APIError
+from .exceptions import APIError, TaskTypeConstraintError
 
 logger = logging.getLogger("seedance")
+
+TASK_TYPE_CONSTRAINT_CODE = "InvalidParameter.TaskTypeConstraint"
+
+# "Issues: [0] first detail. [1] second detail." -> ["first detail.", ...]
+_ISSUE_RE = re.compile(r"\[\d+\]\s*([^\[]+)")
+# The message ends with a trailing correlation id that is not part of the last issue.
+_REQUEST_ID_RE = re.compile(r"\s*Request id:.*$", re.IGNORECASE | re.DOTALL)
+
+
+def error_payload(detail: str) -> dict[str, Any]:
+    """Parse an API error body into a dict, tolerating non-JSON responses."""
+    try:
+        parsed = json.loads(detail)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    err = parsed.get("error")
+    return err if isinstance(err, dict) else parsed
+
+
+def parse_issues(message: str) -> list[str]:
+    """Extract the per-violation 'Issues: [0] ... [1] ...' lines from a message."""
+    _, _, tail = message.partition("Issues:")
+    if not tail:
+        return []
+    tail = _REQUEST_ID_RE.sub("", tail)
+    return [m.strip() for m in _ISSUE_RE.findall(tail) if m.strip()]
+
+
+def error_for_body(detail: str, status_code: int) -> APIError:
+    """Build the most specific exception the error body supports."""
+    body = error_payload(detail)
+    code = str(body.get("code") or "")
+    message = str(body.get("message") or "") or detail
+    if code == TASK_TYPE_CONSTRAINT_CODE:
+        return TaskTypeConstraintError(
+            f"HTTP {status_code}: {message}",
+            status_code=status_code,
+            issues=parse_issues(message),
+        )
+    return APIError(f"HTTP {status_code}: {detail}", status_code=status_code)
 
 
 def _do_request(
@@ -32,7 +75,7 @@ def _do_request(
             return json.loads(resp.read().decode())
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")
-        raise APIError(f"HTTP {exc.code}: {detail}", status_code=exc.code) from exc
+        raise error_for_body(detail, exc.code) from exc
     except error.URLError as exc:
         raise APIError(f"Network error: {exc.reason}") from exc
 
@@ -81,16 +124,26 @@ def extract_nested(data: dict, *keys: str) -> str:
     return "" if current is None else str(current)
 
 
+# Response envelopes vary across API versions; probe each in order.
+_OUTPUT_CONTAINERS = ("content", "result", "output")
+
+
+def extract_output_field(task: dict, field: str) -> Any:
+    """Pull a field out of whichever output container the response uses.
+
+    Falls back to the top level, where Seedance echoes request parameters such
+    as ratio and duration on some responses.
+    """
+    for container in _OUTPUT_CONTAINERS:
+        block = task.get(container)
+        if isinstance(block, dict):
+            value = block.get(field)
+            if value not in (None, ""):
+                return value
+    value = task.get(field)
+    return None if value in (None, "") else value
+
+
 def extract_video_url(task: dict) -> str | None:
-    for extractor in [
-        lambda t: t["content"]["video_url"],
-        lambda t: t["result"]["video_url"],
-        lambda t: t["output"]["video_url"],
-    ]:
-        try:
-            url = extractor(task)
-            if url:
-                return url
-        except (KeyError, TypeError):
-            pass
-    return None
+    url = extract_output_field(task, "video_url")
+    return str(url) if url else None

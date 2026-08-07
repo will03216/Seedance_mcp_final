@@ -1,12 +1,20 @@
 # Platform
 
-Operational notes for submitting Seedance 2.0 jobs through this repo's MCP/CLI layer.
+Operational notes for submitting Seedance jobs through this repo's MCP/CLI layer.
+Seedance 2.5 is the default model; Seedance 2.0 is available via `model="2.0"` /
+`--model 2.0`.
 
 ## Submission via MCP or CLI
 
 All video generation goes through the `seedance_generate` MCP tool (preferred)
 or the fine-grained `seedance_text_to_video` / `seedance_image_to_video` tools.
 The equivalent CLI command is `seedance generate` / `/seedance:generate`.
+
+Two Seedance 2.5 task types have dedicated tools because they lock parameters
+the generic path cannot validate: `seedance_edit_video` / `seedance edit`
+(changes what is in a clip) and `seedance_extend_video` / `seedance extend`
+(continues a clip). Use them rather than routing an edit through
+`seedance_generate` — see the task-type table below.
 
 The MCP server:
 1. Auto-uploads any portrait references to the asset library
@@ -17,11 +25,34 @@ For status checks, call `seedance_check_task(task_id)` on demand. No cron, no ba
 
 ## Working assumptions
 
-- Short clips are safer than long clips; default 5s, ceiling 15s.
-- Common ratios: `21:9`, `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `adaptive`.
+- Short clips are safer than long clips; default 5s, ceiling 30s on Seedance 2.5 (15s on 2.0). A raised ceiling is not a target — see [`duration-calculus.md`](duration-calculus.md).
+- Common ratios: `21:9`, `16:9`, `4:3`, `1:1`, `3:4`, `9:16`, `adaptive`. The SDK/CLI/MCP default is `auto`, which resolves per task type.
 - Image references are usually easier to control than text-only generations.
 - Shorter prompts generally fail less often than verbose ones.
-- Resolution: `"480p"`, `"720p"`, `"1080p"`. **Default is `"720p"`** — never silently fall back to 480p. Use `"1080p"` only on explicit request. Output is MP4.
+- Resolution: `"480p"`, `"720p"` on Seedance 2.5; 2.0 also offers `"1080p"`. **Default is `"720p"`** — never silently fall back to 480p. For a higher-resolution master, generate 720p and finish with `byteplus_upscale_video`.
+- Output container: `mp4` (default) or `mov` on Seedance 2.5. mov carries higher colour precision (H.264 + YUV444P + PCM) for grading and compositing, and is recommended for edit/extend tasks; it plays only in IINA, VLC, mpv, and ffplay. Seedance 2.0 is mp4-only.
+- Prompt languages: Seedance 2.5 adds Spanish, Indonesian, Portuguese, Japanese, Malay, Thai, Arabic, Vietnamese, and Korean to Chinese and English.
+
+## Task types and what they lock
+
+Seedance 2.5 classifies each request into a task type — from `content[].role`
+for first-frame jobs, and from **the prompt** for everything else — then applies
+that type's parameter rules. Violations of a prompt-inferred rule can only be
+reported *after* the task is consumed, so they arrive asynchronously as a failed
+task carrying `InvalidParameter.TaskTypeConstraint`.
+
+| Task type | Triggered by | Ratio | Duration |
+|---|---|---|---|
+| Text-to-video | no references | any | 4–30 or -1 |
+| Reference-to-video | images / videos / audio, no edit or extend intent | any | 4–30 or -1 |
+| First frame (+ last frame) | `first_frame_url` | **`adaptive` only** | 4–30 or -1 |
+| Video edit | prompt intent: add, remove, replace, change | **`adaptive` only** | **-1 only** |
+| Video extend | prompt intent: extend, continue, forward/backward | **`adaptive` only** | 4–30 or -1 |
+
+The SDK validates these locally before submitting and raises `ValidationError`
+with the offending parameter named. Using `seedance edit` / `seedance extend`
+(or their MCP equivalents) sets the locked values for you, which is why they
+are preferred over describing the operation through `seedance_generate`.
 
 ## Asset budget habits
 
@@ -34,19 +65,29 @@ Keep the request simple:
 
 ### Reference limits vs. reference *strategy*
 
-The hard ceiling is **9 images, 3 videos, 3 audio** (≤12 items total; video and
-audio are URL-only). But **do not approach the ceiling** — too many references
-dilute priority and the model struggles to decide what matters. A reliable
-short-drama config is **4–5 assets total**, one per function:
+The hard ceiling on Seedance 2.5 is **30 images, 10 videos, 10 audio** (50 items
+total; each video or audio clip 2–30s, and ≤30s in total per media type). On
+Seedance 2.0 it is 9 images, 3 videos, 3 audio at ≤15s.
+
+**The ceiling rose; the advice did not.** Too many references still dilute
+priority and the model still struggles to decide what matters — 2.5 simply
+fails less catastrophically when you overload it. A reliable short-drama config
+remains **4–5 assets total**, one per function. Reach past that only when each
+additional reference has a distinct, nameable job (the multi-video advertising
+pattern in [`examples.md`](examples.md) is the case that genuinely earns it):
 
 | Functional role | Asset | Binds via |
 |-----------------|-------|-----------|
-| Character anchor | 1–2 portrait images (face / full body) | `reference_image` → `[image1]`/`[image2]` |
-| Scene / style | 1 scene image | `reference_image` → `[image2]`/`[image3]` |
-| Camera & rhythm | 1 reference video | `reference_video` → `[video1]` |
-| Pacing / mood | 1 audio clip | `reference_audio` → `[audio1]` |
+| Character anchor | 1–2 portrait images (face / full body) | `reference_image` → `@Image1`/`@Image2` |
+| Scene / style | 1 scene image | `reference_image` → `@Image2`/`@Image3` |
+| Camera & rhythm | 1 reference video | `reference_video` → `@Video1` |
+| Pacing / mood | 1 audio clip | `reference_audio` → `@Audio1` |
 
-When a video is used only for camera/motion, say so explicitly (`use [video1]
+Seedance 2.5 also accepts **audio-only input** — a track with no image or video
+reference at all, driving rhythm, pacing, and cuts. Seedance 2.0 requires a
+visual reference alongside any audio.
+
+When a video is used only for camera/motion, say so explicitly (`use @Video1
 for camera and timing only — do not copy its characters or scene`), or the
 model may import its subjects.
 
@@ -95,7 +136,7 @@ Minimum guidance to give the user (Chinese):
 | `DELETE` | `https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/{id}` | `seedance_cancel_task` |
 
 Reference docs:
-- Seedance 2.0 model overview: <https://docs.byteplus.com/en/docs/ModelArk/2291680>
+- Seedance model overview: <https://docs.byteplus.com/en/docs/ModelArk/2291680>
 - Create task API: <https://docs.byteplus.com/en/docs/ModelArk/1520757>
 - Retrieve task API: <https://docs.byteplus.com/en/docs/ModelArk/1521309>
 

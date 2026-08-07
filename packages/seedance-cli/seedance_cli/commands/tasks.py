@@ -31,11 +31,30 @@ def status(
     console.print()
     if result.succeeded:
         ok(f"[task_id]{task_id}[/task_id]  status=[green]succeeded[/green]")
+        facts = [
+            f"{label}={value}"
+            for label, value in (
+                ("duration", f"~{result.duration}s" if result.duration is not None else None),
+                ("ratio", result.ratio),
+                ("resolution", result.resolution),
+                ("format", result.output_format),
+            )
+            if value
+        ]
+        if facts:
+            info("  ".join(facts))
         console.print(f"\n  [url]{result.video_url}[/url]\n")
     elif result.terminal:
         err(f"[task_id]{task_id}[/task_id]  status=[red]{result.status}[/red]")
         if result.error:
             info(f"Error: {result.error}")
+        if result.task_type_constraint_error:
+            warn(
+                "The parameters clashed with the task type the model inferred from the "
+                "prompt. Seedance 2.5 locks the aspect ratio to the source for first-frame, "
+                "edit, and extend tasks, and locks the duration to the source for edits. "
+                "Resubmit with 'seedance edit' or 'seedance extend', which set these for you."
+            )
         raise typer.Exit(1)
     else:
         info(f"[task_id]{task_id}[/task_id]  status=[yellow]{result.status}[/yellow]")
@@ -58,12 +77,13 @@ def list_tasks(
     page: int = typer.Option(1, "--page", help="Page number."),
     limit: int = typer.Option(10, "--limit", "-n", help="Results per page (max 50)."),
     status_filter: str = typer.Option("", "--status", "-s", help="Filter by status."),
+    model_filter: str = typer.Option("", "--model", "-m", help="Filter by model: 2.5 | 2.0 | 2.0-fast, or a full model ID."),
     profile: str = typer.Option("default", "--profile", help="Credentials profile."),
 ) -> None:
     """List recent video generation tasks."""
     client = SeedanceClient(profile=profile)
     try:
-        data = client.list_tasks(page, limit, status_filter)
+        data = client.list_tasks(page, limit, status_filter, model_filter)
     except SeedanceError as exc:
         err(str(exc))
         raise typer.Exit(1)

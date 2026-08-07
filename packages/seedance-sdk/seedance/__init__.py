@@ -1,8 +1,12 @@
-"""Seedance SDK — BytePlus Seedance 2.0 video generation."""
+"""Seedance SDK — BytePlus Seedance video generation (2.5 default, 2.0 supported)."""
 from .client import SeedanceClient
-from .config import __version__
+from .config import (
+    DEFAULT_MODEL, DURATION_AUTO, FAST_MODEL, LEGACY_MODEL, RATIO_AUTO,
+    __version__,
+)
 from .exceptions import (
-    APIError, AssetError, AuthError, SeedanceError, StorageError, ValidationError,
+    APIError, AssetError, AuthError, SeedanceError, StorageError,
+    TaskTypeConstraintError, ValidationError,
 )
 from .types import (
     AssetGroupResult, AssetResult, GenerateResult, TaskResult,
@@ -12,11 +16,18 @@ from .types import (
 __all__ = [
     "SeedanceClient",
     "__version__",
+    # Model selection
+    "DEFAULT_MODEL",
+    "FAST_MODEL",
+    "LEGACY_MODEL",
+    "DURATION_AUTO",
+    "RATIO_AUTO",
     # Exceptions
     "SeedanceError",
     "AuthError",
     "ValidationError",
     "APIError",
+    "TaskTypeConstraintError",
     "AssetError",
     "StorageError",
     # Result types

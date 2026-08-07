@@ -1,6 +1,38 @@
-# Seedance 2.0
+# Seedance 2.5
 
-Generate AI videos with **BytePlus Seedance 2.0** — from your terminal, your AI client, or Claude Code.
+Generate AI videos with **BytePlus Seedance** — from your terminal, your AI client, or Claude Code.
+Seedance 2.5 is the default model; Seedance 2.0 remains available behind `model="2.0"`.
+
+## What Seedance 2.5 changes
+
+| | Seedance 2.5 *(default)* | Seedance 2.0 |
+|---|---|---|
+| Duration | **4–30s**, or `-1` for model-chosen | 4–15s, or `-1` |
+| Resolution | **480p / 720p** | 480p / 720p / **1080p** |
+| Reference images | **up to 30** | up to 9 |
+| Reference videos | **up to 10**, each ≤30s (≤30s total) | up to 3, each ≤15s (≤15s total) |
+| Reference audio | **up to 10**, each ≤30s (≤30s total) | up to 3, each ≤15s (≤15s total) |
+| Audio-only input | **yes** | no |
+| Output container | **mp4 or mov** | mp4 |
+| Video editing / extension | **first-class** (`seedance edit` / `extend`) | not supported |
+| Prompt languages | + Spanish, Indonesian, Portuguese, Japanese, Malay, Thai, Arabic, Vietnamese, Korean | Chinese, English |
+| Reference tags in prompts | `@Image1`, `@Video1`, `@Audio1` | `[image1]`, `[video1]`, `[audio1]` |
+
+**Need 1080p?** Pass `model="2.0"` (MCP/SDK) or `--model 2.0` (CLI). Seedance 2.5 tops out at 720p —
+generate at 720p and run `seedance upscale` for a 4K finish.
+
+**Migrating from 2.0?** Two behaviours changed that can bite:
+
+1. **Aspect ratio is locked for some task types.** On 2.5, first-frame, video-edit, and video-extend
+   jobs take the ratio from the source image or video and accept only `ratio="adaptive"`. Passing
+   `16:9` now raises a `ValidationError` before submission. Leave `ratio` unset (it defaults to
+   `"auto"`, which resolves correctly per task type) and you never have to think about it.
+2. **Duration is locked for video edits.** An edit keeps the source clip's length, so `duration`
+   must be `-1`. `seedance edit` sets this for you.
+
+If a job slips past local validation, the API rejects it *asynchronously* — the task fails minutes
+later with `InvalidParameter.TaskTypeConstraint`. `seedance status` and `seedance_check_task` both
+explain that error and point you at the right command.
 
 ---
 
@@ -98,7 +130,7 @@ seedance_generate(prompt="A sunrise over mountains, camera slowly pushes in", ra
 # Image-to-video (portrait) — asset library upload is automatic
 # Passing a raw HTTPS URL directly returns InputImageSensitiveContentDetected
 seedance_generate(
-  prompt="[image1] smiles softly. Camera slowly pushes in. Soft studio light.",
+  prompt="@Image1 smiles softly. Camera slowly pushes in. Soft studio light.",
   image_url="https://example.com/portrait.jpg",
   ratio="9:16",
   duration=6
@@ -116,8 +148,35 @@ seedance_generate(
 
 # Then poll every 10–15s until done
 seedance_check_task(task_id="cgt-xxxx")
-→ { status: "succeeded", video_url: "https://..." }
+→ { status: "succeeded", video_url: "https://...", duration: 6, ratio: "9:16",
+    resolution: "720p", output_format: "mp4" }
 ```
+
+To **change or continue an existing video**, use the two Seedance 2.5 task-type tools rather than
+describing the operation through `seedance_generate` — they set the parameters those task types
+lock, so a mistake surfaces immediately instead of failing the task minutes later:
+
+```
+# Editing — output keeps the source ratio AND duration
+seedance_edit_video(
+  prompt="Video edit: remove everyone in @Video1 except the protagonist.",
+  video_urls=["https://example.com/scene.mov"]
+)
+→ { task_id: "cgt-xxxx", status: "queued", mode: "V2V-Edit(vid=1)" }
+
+# Extending — output keeps the source ratio; duration is yours to set
+seedance_extend_video(
+  prompt="Extend @Video1 — the camera keeps pushing down the corridor.",
+  video_urls=["https://example.com/corridor.mov"],
+  duration=11
+)
+→ { task_id: "cgt-xxxx", status: "queued", mode: "V2V-Extend(vid=1)" }
+```
+
+Both default to `output_format="mov"`, which BytePlus recommends for edits and extensions: its
+higher colour precision (H.264 + YUV444P + PCM) keeps audio and video in sync and survives further
+grading or compositing. Pass `output_format="mp4"` when the file needs to play anywhere — mov needs
+IINA, VLC, mpv, or ffplay.
 
 To **upscale an existing video** (e.g. a generated output URL) use the standalone AI MediaKit
 tool — it is independent of `seedance_generate` and needs `MEDIAKIT_API_KEY`:
@@ -139,6 +198,8 @@ byteplus_check_upscale_task(task_id="amk-tool-enhance-video-xxxx")
 |---|---|
 | `seedance_generate` | **Start here.** Auto-uploads images + submits job. Returns `task_id`. |
 | `seedance_check_task` | Poll for status and `video_url`. |
+| `seedance_edit_video` | Edit an **existing** video — add/remove/replace elements *(Seedance 2.5)*. |
+| `seedance_extend_video` | Continue an **existing** video forwards or backwards *(Seedance 2.5)*. |
 | `seedance_text_to_video` | Fine-grained T2V — skips asset upload. |
 | `seedance_image_to_video` | Fine-grained I2V with multiple refs — skips asset upload. |
 | `byteplus_upscale_video` | Upscale/enhance an **existing** video (AI MediaKit, up to 4K). Needs `MEDIAKIT_API_KEY`. |
@@ -178,10 +239,35 @@ seedance generate \
 
 # Image-to-video — portrait auto-uploaded to asset library
 seedance generate \
-  --prompt "[image1] smiles softly, camera slowly pushes in. Soft studio light." \
+  --prompt "@Image1 smiles softly, camera slowly pushes in. Soft studio light." \
   --image "https://example.com/portrait.jpg" \
   --ratio 9:16 --duration 6 --watch
+
+# Multi-reference — repeat --image (up to 30 on Seedance 2.5)
+seedance generate \
+  --prompt "@Image1 is the lead; @Image2 sets the wardrobe; camera follows @Video1." \
+  --image "https://example.com/lead.jpg" \
+  --image "https://example.com/wardrobe.jpg" \
+  --video "https://example.com/camera-ref.mp4" \
+  --duration 20 --watch
 ```
+
+### Edit or extend an existing video *(Seedance 2.5)*
+
+```bash
+# Edit — output keeps the source ratio AND duration, so neither flag exists
+seedance edit \
+  --prompt "Video edit: remove everyone in @Video1 except the protagonist." \
+  --video "https://example.com/scene.mov" --watch
+
+# Extend — output keeps the source ratio; --duration is yours to set
+seedance extend \
+  --prompt "Extend @Video1 — the camera keeps pushing down the corridor." \
+  --video "https://example.com/corridor.mov" --duration 11 --watch
+```
+
+Both default to `--output-format mov` for the best audio-video sync; pass `--output-format mp4`
+when the file needs to play in any player.
 
 `--watch` streams the full pipeline live:
 
@@ -207,20 +293,26 @@ seedance watch  cgt-xxxx      # stream until done
 
 ```bash
 seedance generate \
-  --prompt      "..."         # scene / motion description (required)
-  --image       <url>         # reference image — auto-uploaded to asset library for portraits
-  --first-frame <url>         # pin the exact starting frame
-  --last-frame  <url>         # pin the ending frame (requires --first-frame)
-  --ratio       9:16          # 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive
-  --duration    6             # seconds (4–15), default 5
-  --resolution  1080p         # 480p | 720p | 1080p, default 720p
+  --prompt        "..."       # scene / motion description (required)
+  --image         <url>       # reference image — repeatable, up to 30 on 2.5. Auto-uploaded for portraits
+  --video         <url>       # reference video — repeatable, up to 10 on 2.5
+  --audio-ref     <url>       # reference audio — repeatable, up to 10 on 2.5
+  --first-frame   <url>       # pin the exact starting frame
+  --last-frame    <url>       # pin the ending frame (requires --first-frame)
+  --ratio         9:16        # 21:9 | 16:9 | 4:3 | 1:1 | 3:4 | 9:16 | adaptive | auto (default)
+  --duration      6           # seconds: 4–30 on 2.5, 4–15 on 2.0. Use --duration=-1 for model-chosen
+  --resolution    720p        # 480p | 720p (2.0 also allows 1080p), default 720p
+  --model         2.5         # 2.5 (default) | 2.0 | 2.0-fast — use 2.0 for 1080p
+  --output-format mov         # mp4 (default) | mov — Seedance 2.5 only
   --audio                     # generate matching audio track
-  --fast                      # faster/cheaper model variant
-  --seed        42            # reproducible results
+  --fast                      # faster/cheaper variant (always Seedance 2.0 Fast)
+  --seed          42          # reproducible results
   --camerafixed               # no camera movement (product shots)
-  --asset-group <id>          # reuse existing asset group, skip group creation
+  --asset-group   <id>        # reuse existing asset group, skip group creation
   --watch                     # stream progress until done
 ```
+
+> Use `--duration=-1`, not `-d -1` — a bare `-1` is parsed as a flag.
 
 ### Full command reference
 
@@ -230,10 +322,15 @@ seedance auth login           # store credentials interactively
 seedance auth check           # verify all three keys are configured
 seedance auth logout          # remove stored credentials
 
+# Generation
+seedance generate --prompt "..." [--image <url>] [--watch]
+seedance edit     --prompt "..." --video <url> [--watch]          # Seedance 2.5
+seedance extend   --prompt "..." --video <url> [--duration 11]    # Seedance 2.5
+
 # Tasks
 seedance status  <task_id>    # check status once
 seedance watch   <task_id>    # stream until done
-seedance list    [--status succeeded|running|failed] [--limit 20]
+seedance list    [--status succeeded|running|failed] [--model 2.5] [--limit 20]
 seedance cancel  <task_id>
 
 # Asset library (manual flow — auto flow is built into seedance generate)
@@ -280,7 +377,7 @@ seedance skill install        # copies skill file + patches Claude Code settings
 ```
 
 ```
-/seedance:generate [image1] smiles softly, camera slowly pushes in --image https://example.com/portrait.jpg --ratio 9:16
+/seedance:generate @Image1 smiles softly, camera slowly pushes in --image https://example.com/portrait.jpg --ratio 9:16
 ```
 
 For portrait images, the asset library pipeline runs automatically — Claude creates the asset group, uploads the image, polls until Active, submits the job, and returns the video URL. All in one conversation turn. Passing a raw URL directly returns `InputImageSensitiveContentDetected`.
@@ -288,7 +385,9 @@ For portrait images, the asset library pipeline runs automatically — Claude cr
 ### Available commands
 
 ```
-/seedance:generate <prompt> [--image <url>] [--ratio] [--duration] [--resolution] [--watch]
+/seedance:generate <prompt> [--image <url>] [--ratio] [--duration] [--resolution] [--model] [--watch]
+/seedance:edit     <prompt> --video <url>          # Seedance 2.5
+/seedance:extend   <prompt> --video <url> [--duration]  # Seedance 2.5
 /seedance:status   <task_id>
 /seedance:watch    <task_id>
 /seedance:list
@@ -314,10 +413,10 @@ seedance asset upload https://example.com/portrait.jpg --group group-20260607-xx
 # → asset_ref: asset://asset-20260607-xxxx
 
 # 3. Pass the asset ref directly on future generations (no re-upload)
-seedance generate --image "asset://asset-20260607-xxxx" --prompt "[image1] ..." --watch
+seedance generate --image "asset://asset-20260607-xxxx" --prompt "@Image1 ..." --watch
 
 # Or in MCP:
-seedance_generate(image_url="asset://asset-20260607-xxxx", prompt="[image1] ...", asset_group_id="group-20260607-xxxx")
+seedance_generate(image_url="asset://asset-20260607-xxxx", prompt="@Image1 ...", asset_group_id="group-20260607-xxxx")
 ```
 
 ---
@@ -333,7 +432,7 @@ client = SeedanceClient()  # reads from env vars or ~/.seedance/credentials
 
 # Submit (auto-handles asset upload for portrait images)
 result = client.generate(
-    prompt="[image1] smiles softly, camera slowly pushes in",
+    prompt="@Image1 smiles softly, camera slowly pushes in",
     image_url="https://example.com/portrait.jpg",
     ratio="9:16",
     duration=6,
@@ -353,6 +452,44 @@ while True:
     time.sleep(10)
 ```
 
+Seedance 2.5 task types and model selection:
+
+```python
+# Video editing — ratio and duration are locked to the source clip
+result = client.submit_video_edit(
+    "Video edit: remove everyone in @Video1 except the protagonist.",
+    video_urls=["https://example.com/scene.mov"],
+)
+
+# Video extension — ratio is locked; duration is not
+result = client.submit_video_extend(
+    "Extend @Video1 — the camera keeps pushing down the corridor.",
+    video_urls=["https://example.com/corridor.mov"],
+    duration=11,
+)
+
+# Audio-only input (Seedance 2.5 exclusive)
+result = client.submit_image_to_video(
+    "A dancer moves to the rhythm of @Audio1, neon warehouse, handheld.",
+    audio_urls=["https://example.com/track.mp3"],
+    duration=20,
+)
+
+# Fall back to Seedance 2.0 when you need 1080p
+result = client.submit_text_to_video(
+    "A silver espresso machine, morning light.",
+    model="2.0", resolution="1080p",
+)
+```
+
+Constraint violations raise `ValidationError` before the request leaves your process. If one slips
+through, the API returns `InvalidParameter.TaskTypeConstraint` — surfaced as `TaskTypeConstraintError`
+when synchronous, and as `result.task_type_constraint_error` on a failed task when asynchronous:
+
+```python
+from seedance import TaskTypeConstraintError
+```
+
 Install: `pip install packages/seedance-sdk` (from repo root; zero runtime dependencies — uses stdlib urllib only).
 
 ---
@@ -366,7 +503,7 @@ packages/
     docker/              # Dockerfile + docker-compose
   seedance-cli/          # CLI — typer + rich
     seedance_cli/commands/
-      auth.py generate.py tasks.py assets.py models.py skill.py
+      auth.py generate.py edit.py tasks.py assets.py models.py skill.py
 
 skills/
   seedance.md            # Claude Code skill definition
