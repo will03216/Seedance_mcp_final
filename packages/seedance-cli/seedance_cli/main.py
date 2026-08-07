@@ -3,6 +3,8 @@
 Usage:
     seedance auth login
     seedance generate --prompt "..." --image "https://..." --watch
+    seedance edit --prompt "..." --video "https://..." --watch
+    seedance extend --prompt "..." --video "https://..." --duration 11 --watch
     seedance upscale <video_url> --resolution 1080p --watch
     seedance upscale-status <task_id>
     seedance status <task_id>
@@ -20,11 +22,11 @@ from __future__ import annotations
 
 import typer
 
-from .commands import auth, assets, generate, models, skill, tasks, tos, upscale
+from .commands import assets, auth, edit, generate, models, skill, tasks, tos, upscale
 
 app = typer.Typer(
     name="seedance",
-    help="BytePlus Seedance 2.0 video generation CLI.",
+    help="BytePlus Seedance video generation CLI (2.5 by default).",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -43,6 +45,8 @@ app.command("status", help="Check the status of a task.")(tasks.status)
 app.command("watch",  help="Stream live progress for a task.")(tasks.watch)
 app.command("list",   help="List recent tasks.")(tasks.list_tasks)
 app.command("cancel", help="Cancel a running task.")(tasks.cancel)
+app.command("edit",   help="Edit an existing video (Seedance 2.5).")(edit.edit)
+app.command("extend", help="Extend an existing video (Seedance 2.5).")(edit.extend)
 app.command("upscale", help="Upscale/enhance an existing video (AI MediaKit).")(upscale.upscale)
 app.command("upscale-status", help="Check an upscale task's status.")(upscale.upscale_status)
 
@@ -54,14 +58,15 @@ def ping(
     """Verify server connectivity and credential configuration."""
     from seedance import SeedanceClient
     from seedance.exceptions import SeedanceError
-    from .console import console, err, ok, info
+
+    from .console import console, err, info, ok
 
     client = SeedanceClient(profile=profile)
     try:
         result = client.ping()
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     ok(f"Connected  (SDK v{result['version']})")

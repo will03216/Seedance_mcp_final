@@ -8,11 +8,19 @@ import json
 import logging
 import time
 from typing import Any
-from urllib import error, parse, request as urllib_request
+from urllib import error, parse
+from urllib import request as urllib_request
 
 from .config import (
-    ASSET_CONTENT_TYPE, ASSET_HOST, ASSET_POLL_INTERVAL, ASSET_POLL_TIMEOUT,
-    ASSET_REGION, ASSET_SERVICE, ASSET_VERSION, MAX_RETRIES, POLL_TIMEOUT,
+    ASSET_CONTENT_TYPE,
+    ASSET_HOST,
+    ASSET_POLL_INTERVAL,
+    ASSET_POLL_TIMEOUT,
+    ASSET_REGION,
+    ASSET_SERVICE,
+    ASSET_VERSION,
+    MAX_RETRIES,
+    POLL_TIMEOUT,
 )
 from .exceptions import APIError, AssetError, TimeoutError
 from .http import extract_nested
@@ -32,7 +40,7 @@ def _sha256_hex(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _norm_query(params: dict) -> str:
+def _norm_query(params: dict[str, Any]) -> str:
     parts = []
     for key in sorted(params.keys()):
         values = params[key] if isinstance(params[key], list) else [params[key]]
@@ -45,7 +53,7 @@ def _norm_query(params: dict) -> str:
 
 def _sign_request(ak: str, sk: str, action: str, body_str: str) -> tuple[str, str, str, str]:
     """Return (x_date, content_sha256, canonical_query, authorization)."""
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     x_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = x_date[:8]
     content_sha256 = _sha256_hex(body_str)
@@ -96,7 +104,7 @@ class AssetClient:
     def _call(
         self,
         action: str,
-        body: dict,
+        body: dict[str, Any],
         *,
         timeout: int = POLL_TIMEOUT,
         correlation_id: str = "",
@@ -117,17 +125,25 @@ class AssetClient:
         req = urllib_request.Request(url, data=body_str.encode(), headers=headers, method="POST")
         try:
             with urllib_request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode())
+                parsed = json.loads(resp.read().decode())
         except error.HTTPError as exc:
             detail = exc.read().decode(errors="ignore")
             raise APIError(f"Asset API HTTP {exc.code}: {detail}", status_code=exc.code) from exc
         except error.URLError as exc:
             raise APIError(f"Asset API network error: {exc.reason}") from exc
+        except ValueError as exc:
+            raise APIError(f"Malformed JSON in Asset API response: {exc}") from exc
+
+        if not isinstance(parsed, dict):
+            raise APIError(
+                f"Expected a JSON object from the Asset API, got {type(parsed).__name__}."
+            )
+        return parsed
 
     def _call_with_retry(
         self,
         action: str,
-        body: dict,
+        body: dict[str, Any],
         *,
         correlation_id: str = "",
     ) -> dict[str, Any]:
@@ -138,7 +154,6 @@ class AssetClient:
                 return self._call(action, body, correlation_id=correlation_id)
             except APIError as exc:
                 last_exc = exc
-                msg = str(exc)
                 if exc.status_code is not None and 400 <= exc.status_code < 500:
                     raise
                 import random
@@ -188,7 +203,7 @@ class AssetClient:
             raise AssetError("CreateAsset did not return an asset_id.")
         return asset_id
 
-    def get_asset_status(self, asset_id: str, *, correlation_id: str = "") -> tuple[str, dict]:
+    def get_asset_status(self, asset_id: str, *, correlation_id: str = "") -> tuple[str, dict[str, Any]]:
         """Return (status, raw_response) for an asset."""
         resp = self._call_with_retry(
             "GetAsset", {"Id": asset_id}, correlation_id=correlation_id

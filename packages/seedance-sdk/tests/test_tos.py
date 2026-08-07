@@ -59,11 +59,14 @@ def test_sign_is_deterministic_for_fixed_time():
 
     class _FixedDT(datetime.datetime):
         @classmethod
-        def utcnow(cls):
-            return cls(2024, 6, 16, 12, 0, 0)
+        def now(cls, tz=None):
+            return cls(2024, 6, 16, 12, 0, 0, tzinfo=tz)
 
     with patch("seedance.tos.datetime") as dt:
         dt.datetime = _FixedDT
+        # The module is fully mocked, so hand back the real timezone — _sign
+        # passes datetime.timezone.utc into now() and needs a valid tzinfo.
+        dt.timezone = datetime.timezone
         a = _sign("AK", "SK", **kwargs)["Authorization"]
         b = _sign("AK", "SK", **kwargs)["Authorization"]
     assert a == b

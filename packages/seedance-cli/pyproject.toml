@@ -4,24 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seedance-cli"
-version = "2.0.0"
-description = "CLI for BytePlus Seedance 2.0 video generation"
+version = "2.1.0"
+description = "CLI for BytePlus Seedance video generation (2.5 + 2.0)"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["byteplus", "seedance", "cli", "video-generation", "ai"]
 dependencies = [
-    "seedance-sdk>=2.0.0",
+    "seedance-sdk>=2.1.0",
     "typer>=0.12.0",
     "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
-mcp = ["seedance-mcp>=2.0.0"]   # install CLI + MCP server together
-dev = [
-    "pytest>=8.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-]
+mcp = ["seedance-mcp>=2.1.0"]   # install CLI + MCP server together
 
 [project.scripts]
 seedance = "seedance_cli.main:app"

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seedance-sdk"
-version = "2.0.0"
-description = "Python SDK for BytePlus Seedance 2.0 video generation"
+version = "2.1.0"
+description = "Python SDK for BytePlus Seedance video generation (2.5 + 2.0)"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 keywords = ["byteplus", "seedance", "video-generation", "ai"]
@@ -18,14 +18,6 @@ classifiers = [
 ]
 # Zero runtime dependencies — uses stdlib urllib only
 dependencies = []
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-httpserver>=1.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-]
 
 [project.urls]
 Repository = "https://github.com/byteplus/byteplus-seedance"

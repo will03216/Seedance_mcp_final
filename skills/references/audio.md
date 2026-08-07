@@ -92,14 +92,27 @@ If exact audio playback is not required, describe sound in natural language:
 - `low electronic pulse under the scene`
 - `brief metallic impact when the blade lands`
 
-Use `[audio1]` when rhythm or lip-sync matters — tag it inline next to the
-speaking subject (e.g. `She [image1] speaks in sync with [audio1].`).
+Use `@Audio1` when rhythm or lip-sync matters — tag it inline next to the
+speaking subject (e.g. `She @Image1 speaks in sync with @Audio1.`).
 
 **Passing an audio reference:** supply it via `--audio-ref <url>` (CLI) /
-`audio_urls=[...]` (MCP). It is URL-only (MP3/WAV, not auto-uploaded), max
-3 clips, and binds by content role as `[audio1]`, `[audio2]`, … in argument
-order. This is distinct from `--audio` / `generate_audio`, which is a boolean
+`audio_urls=[...]` (MCP). It is URL-only (MP3/WAV, not auto-uploaded), and binds
+by content role as `@Audio1`, `@Audio2`, … in argument order. Seedance 2.5 takes
+up to **10 clips**, each 2–30s and ≤30s in total; Seedance 2.0 takes 3 clips at
+2–15s. This is distinct from `--audio` / `generate_audio`, which is a boolean
 asking Seedance to *synthesize* a matching track (no reference, no tag).
+
+**Audio-only generation (Seedance 2.5).** Audio can now be the *sole* reference —
+no image or video required. The track drives rhythm, pacing, and cut points, and
+the visuals are generated from the prompt around it. This is the cleanest way to
+cut to a specific piece of music: pass the track, describe the scene, and let the
+beats place the cuts rather than guessing at them in the duration math. Seedance
+2.0 rejects audio without a visual reference.
+
+**Editing a clip's audio (Seedance 2.5).** To change sound on an *existing* video —
+strip the music, add a voice, swap ambience — that is a video-edit task, not a
+generation with an audio reference. Use `seedance edit` / `seedance_edit_video`;
+the output keeps the source clip's length so the audio stays in sync.
 
 ## Hard constraints from repo guidance
 
@@ -130,7 +143,7 @@ Most reliable for one speaker:
 
 Use when timing must follow an uploaded file:
 
-`The speaker [image1] lip-syncs to [audio1]. Locked medium close-up. No fast turns or nodding.`
+`The speaker @Image1 lip-syncs to @Audio1. Locked medium close-up. No fast turns or nodding.`
 
 ## Multi-character workaround
 

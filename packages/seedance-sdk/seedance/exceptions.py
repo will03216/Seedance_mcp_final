@@ -22,6 +22,27 @@ class APIError(SeedanceError):
         self.status_code = status_code
 
 
+class TaskTypeConstraintError(APIError):
+    """Raised for InvalidParameter.TaskTypeConstraint (Seedance 2.5).
+
+    The request parameters are incompatible with the task type the model
+    inferred from the prompt — e.g. a specific ratio on a video-edit task,
+    which must be 'adaptive'. The API returns this synchronously for some
+    cases and asynchronously (on the failed task) for prompt-inferred ones.
+
+    `issues` holds the parsed per-violation detail lines when available.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        issues: list[str] | None = None,
+    ) -> None:
+        super().__init__(message, status_code)
+        self.issues = issues or []
+
+
 class AssetError(SeedanceError):
     """Raised when an asset library operation fails."""
 

@@ -26,7 +26,7 @@ def models(
         data = client.list_models()
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     models_table(data)

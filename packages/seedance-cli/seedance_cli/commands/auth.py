@@ -4,12 +4,12 @@ from __future__ import annotations
 import typer
 from rich.prompt import Prompt
 
+from seedance import SeedanceClient
 from seedance.credentials import (
     clear_credentials,
     credentials_configured,
     write_credentials,
 )
-from seedance import SeedanceClient
 from seedance.exceptions import SeedanceError
 
 from ..console import console, err, info, ok, warn

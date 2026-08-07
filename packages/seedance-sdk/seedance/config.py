@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # Video generation API
 BASE_URL = "https://ark.ap-southeast.bytepluses.com/api/v3"
-DEFAULT_MODEL = "dreamina-seedance-2-0-260128"
+DEFAULT_MODEL = "dreamina-seedance-2-5-260628"
+LEGACY_MODEL = "dreamina-seedance-2-0-260128"
+# No Seedance 2.5 "fast" variant exists; fast_mode always resolves to 2.0 fast.
 FAST_MODEL = "dreamina-seedance-2-0-fast-260128"
 
 SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "30"))
@@ -21,39 +24,142 @@ PAGE_SIZE_MAX = 50
 
 # Multi-reference (all-round reference) budgets for Seedance 2.0.
 # The create-task content[] array accepts image / video / audio reference items
-# bound by their `role` field. Limits per the Seedance 2.0 reference docs.
+# bound by their `role` field. Kept as module constants for backward
+# compatibility; validation reads the per-model values from MODELS instead.
 MAX_REFERENCE_IMAGES = 9
 MAX_REFERENCE_VIDEOS = 3
 MAX_REFERENCE_AUDIO = 3
 
-MODELS: dict[str, dict] = {
+# Sentinel meaning "let the model choose the duration within its range".
+DURATION_AUTO = -1
+# Sentinel meaning "caller did not specify a ratio" — resolved per task type.
+RATIO_AUTO = "auto"
+
+RATIOS_ALL = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"]
+
+# Task types. Seedance 2.5 infers these from the prompt server-side; we track
+# them locally only to validate ratio/duration constraints before submitting,
+# turning asynchronous InvalidParameter.TaskTypeConstraint failures into
+# synchronous ValidationErrors. Never sent in the request payload.
+TASK_TYPE_AUTO = "auto"
+TASK_TYPE_REFERENCE = "reference"
+TASK_TYPE_EDIT = "edit"
+TASK_TYPE_EXTEND = "extend"
+TASK_TYPE_FIRST_FRAME = "first_frame"
+TASK_TYPES: frozenset[str] = frozenset({
+    TASK_TYPE_AUTO, TASK_TYPE_REFERENCE, TASK_TYPE_EDIT,
+    TASK_TYPE_EXTEND, TASK_TYPE_FIRST_FRAME,
+})
+
+OUTPUT_FORMATS: frozenset[str] = frozenset({"mp4", "mov"})
+
+MODELS: dict[str, dict[str, Any]] = {
+    "dreamina-seedance-2-5-260628": {
+        "label": "Seedance 2.5",
+        "alias": "2.5",
+        "resolutions": ["480p", "720p"],
+        "ratios": RATIOS_ALL,
+        "duration_range": [4, 30],
+        "supports_first_frame": True,
+        "supports_last_frame": True,
+        "supports_camerafixed": True,
+        "supports_seed": True,
+        "supports_duration_auto": True,
+        "supports_output_format": True,
+        "supports_audio_only": True,
+        "max_reference_images": 30,
+        "max_reference_videos": 10,
+        "max_reference_audio": 10,
+        # Per-clip and aggregate limits on reference media, in seconds. Not
+        # enforced client-side (we do not probe media); documented for callers.
+        "max_reference_media_seconds": 30,
+        "max_reference_media_total_seconds": 30,
+        # Task types whose output ratio is locked to the source material and
+        # therefore only accept ratio="adaptive".
+        "adaptive_only_task_types": [
+            TASK_TYPE_FIRST_FRAME, TASK_TYPE_EDIT, TASK_TYPE_EXTEND,
+        ],
+        # Task types whose output duration is locked to the source material and
+        # therefore only accept duration=-1.
+        "auto_duration_only_task_types": [TASK_TYPE_EDIT],
+    },
     "dreamina-seedance-2-0-260128": {
         "label": "Seedance 2.0 Standard",
-        "alias": "standard",
+        "alias": "2.0",
         "resolutions": ["480p", "720p", "1080p"],
-        "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
+        "ratios": RATIOS_ALL,
         "duration_range": [4, 15],
         "supports_first_frame": True,
         "supports_last_frame": False,
         "supports_camerafixed": True,
         "supports_seed": True,
+        "supports_duration_auto": True,
+        "supports_output_format": False,
+        "supports_audio_only": False,
+        "max_reference_images": MAX_REFERENCE_IMAGES,
+        "max_reference_videos": MAX_REFERENCE_VIDEOS,
+        "max_reference_audio": MAX_REFERENCE_AUDIO,
+        "max_reference_media_seconds": 15,
+        "max_reference_media_total_seconds": 15,
+        "adaptive_only_task_types": [],
+        "auto_duration_only_task_types": [],
     },
     "dreamina-seedance-2-0-fast-260128": {
         "label": "Seedance 2.0 Fast",
-        "alias": "fast",
+        "alias": "2.0-fast",
         "resolutions": ["480p", "720p", "1080p"],
-        "ratios": ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16", "adaptive"],
+        "ratios": RATIOS_ALL,
         "duration_range": [4, 15],
         "supports_first_frame": True,
         "supports_last_frame": False,
         "supports_camerafixed": True,
         "supports_seed": True,
+        "supports_duration_auto": True,
+        "supports_output_format": False,
+        "supports_audio_only": False,
+        "max_reference_images": MAX_REFERENCE_IMAGES,
+        "max_reference_videos": MAX_REFERENCE_VIDEOS,
+        "max_reference_audio": MAX_REFERENCE_AUDIO,
+        "max_reference_media_seconds": 15,
+        "max_reference_media_total_seconds": 15,
+        "adaptive_only_task_types": [],
+        "auto_duration_only_task_types": [],
     },
 }
 
+# Short names accepted wherever a model is selected (CLI --model, SDK model=).
+MODEL_ALIASES: dict[str, str] = {
+    "2.5": "dreamina-seedance-2-5-260628",
+    "2-5": "dreamina-seedance-2-5-260628",
+    "seedance-2.5": "dreamina-seedance-2-5-260628",
+    "2.0": "dreamina-seedance-2-0-260128",
+    "2-0": "dreamina-seedance-2-0-260128",
+    "standard": "dreamina-seedance-2-0-260128",
+    "seedance-2.0": "dreamina-seedance-2-0-260128",
+    "2.0-fast": "dreamina-seedance-2-0-fast-260128",
+    "2-0-fast": "dreamina-seedance-2-0-fast-260128",
+    "fast": "dreamina-seedance-2-0-fast-260128",
+}
 
-def model_caps(model: str) -> dict:
+
+def resolve_model(model: str) -> str:
+    """Map an alias ('2.5', 'fast') or a full model ID to a full model ID.
+
+    Unknown values are returned unchanged so a newly released model ID can be
+    passed through without an SDK upgrade; capability lookups then fall back to
+    the default model's caps.
+    """
+    if not model:
+        return DEFAULT_MODEL
+    return MODEL_ALIASES.get(model.strip().lower(), model)
+
+
+def model_caps(model: str) -> dict[str, Any]:
     return MODELS.get(model, MODELS[DEFAULT_MODEL])
+
+
+def is_seedance_25(model: str) -> bool:
+    return resolve_model(model) == "dreamina-seedance-2-5-260628"
 
 
 # Asset library API (HMAC-SHA256 AK/SK auth)

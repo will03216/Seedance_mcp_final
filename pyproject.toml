@@ -1,3 +1,15 @@
+# Dev tooling lives in a PEP 735 dependency group, not in each package's
+# [project.optional-dependencies]. `uv sync --dev` (what CI runs) installs
+# dependency groups; it does NOT install extras, so declaring these as extras
+# left ruff/mypy/pytest missing in CI.
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-httpserver>=1.0.0",
+    "mypy>=1.8.0",
+    "ruff>=0.3.0",
+]
+
 [tool.uv.workspace]
 members = [
     "packages/seedance-sdk",
@@ -5,13 +17,31 @@ members = [
     "packages/seedance-cli",
 ]
 
+# Resolve the intra-workspace dependencies from the local checkout rather than
+# the index. Required by uv >= 0.5, which errors out on a workspace member
+# referenced as a plain dependency without a matching source entry.
+[tool.uv.sources]
+seedance-sdk = { workspace = true }
+seedance-mcp = { workspace = true }
+seedance-cli = { workspace = true }
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
 
-[tool.ruff.isort]
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # line length is handled by the formatter, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's whole API is function-call defaults (typer.Option/Argument), which is
+# exactly what B008 flags. Unavoidable in a Typer CLI, so scope the exemption to
+# the command modules rather than disabling the rule everywhere.
+"packages/seedance-cli/seedance_cli/commands/*.py" = ["B008"]
+
+[tool.ruff.lint.isort]
 known-first-party = ["seedance", "seedance_mcp", "seedance_cli"]
 
 [tool.mypy]

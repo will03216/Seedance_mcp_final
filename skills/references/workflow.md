@@ -55,9 +55,9 @@ Use precise language only where the model historically fails without it:
 
 If the user can show it, do not redescribe it.
 
-- `[imageN]` (e.g. `[image1]`, `[image2]`): identity, costume, frame composition, background lock
-- `[videoN]` (e.g. `[video1]`): motion, choreography, camera language, rhythm
-- `[audioN]` (e.g. `[audio1]`): lip-sync reference, beat map, tone, pacing
+- `@ImageN` (e.g. `@Image1`, `@Image2`): identity, costume, frame composition, background lock
+- `@VideoN` (e.g. `@Video1`): motion, choreography, camera language, rhythm
+- `@AudioN` (e.g. `@Audio1`): lip-sync reference, beat map, tone, pacing
 
 Tag every passed reference inline next to the entity it controls. Indices are
 1-based and follow the order in `image_urls=` / `video_urls=` / `audio_urls=`.
@@ -80,7 +80,7 @@ Use these defaults when the user gives little information:
 |---|---|
 | Product image exists | `I2V`, motion-only prompt |
 | Character scene with one face image | `I2V`, medium close-up or medium shot |
-| Fight or dance with a reference clip | `R2V`, transfer motion from `[video1]` |
+| Fight or dance with a reference clip | `R2V`, transfer motion from `@Video1` |
 | No assets, broad idea | `T2V`, one clear subject + one action + one move |
 | Dialogue scene | single speaker per clip, locked framing |
 | Story / multi-scene brief | [`narrative-design.md`](narrative-design.md) → shot list → 2–3 shots per call → chained calls |

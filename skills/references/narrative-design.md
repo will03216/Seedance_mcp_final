@@ -30,8 +30,8 @@ Map those three to shots — often 1:1 for a three-shot call.
 
 | # | Size | Move | Action / dialogue | Performance cue | Sound | Dur | Refs |
 |---|------|------|-------------------|-----------------|-------|-----|------|
-| 1 | Wide | slow push | courier enters the vault | posture wary | hum, footsteps | 4s | [image1] |
-| 2 | CU | locked | "It's already gone." | jaw tightens after the line | line, room tone | 4s | [image1] |
+| 1 | Wide | slow push | courier enters the vault | posture wary | hum, footsteps | 4s | @Image1 |
+| 2 | CU | locked | "It's already gone." | jaw tightens after the line | line, room tone | 4s | @Image1 |
 | 3 | ECU | locked | empty case revealed | — | single latch click | 3s | — |
 
    - **Dur** comes from [`duration-calculus.md`](duration-calculus.md), never from feel.

@@ -63,6 +63,102 @@ def test_generate_forwards_video_and_audio_refs():
     assert kwargs["audio_urls"] == ["https://example.com/voice.mp3"]
 
 
+def test_generate_forwards_model_and_output_format():
+    mock_result = GenerateResult(task_id="task-25", status="queued", mode="T2V", steps=[])
+    with patch("seedance_cli.commands.generate.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        result = runner.invoke(app, [
+            "generate", "--prompt", "A sunset",
+            "--model", "2.5", "--output-format", "mov",
+        ])
+    assert result.exit_code == 0
+    kwargs = MockClient.return_value.generate.call_args.kwargs
+    assert kwargs["model"] == "2.5"
+    assert kwargs["output_format"] == "mov"
+
+
+def test_generate_accepts_repeated_image_flags():
+    mock_result = GenerateResult(task_id="task-multi", status="queued", mode="I2V-Reference", steps=[])
+    with patch("seedance_cli.commands.generate.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        result = runner.invoke(app, [
+            "generate", "--prompt", "@Image1 meets @Image2",
+            "-i", "https://example.com/a.jpg",
+            "-i", "https://example.com/b.jpg",
+        ])
+    assert result.exit_code == 0
+    kwargs = MockClient.return_value.generate.call_args.kwargs
+    assert kwargs["image_urls"] == ["https://example.com/a.jpg", "https://example.com/b.jpg"]
+
+
+def test_generate_accepts_auto_duration():
+    mock_result = GenerateResult(task_id="task-auto", status="queued", mode="T2V", steps=[])
+    with patch("seedance_cli.commands.generate.SeedanceClient") as MockClient:
+        MockClient.return_value.generate.return_value = mock_result
+        result = runner.invoke(app, ["generate", "--prompt", "A sunset", "--duration=-1"])
+    assert result.exit_code == 0
+    assert MockClient.return_value.generate.call_args.kwargs["duration"] == -1
+
+
+# ---------------------------------------------------------------------------
+# edit / extend
+# ---------------------------------------------------------------------------
+
+def test_edit_submits_and_prints_task_id():
+    mock_result = TaskResult(task_id="task-edit", status="queued", mode="V2V-Edit(vid=1)")
+    with patch("seedance_cli.commands.edit.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.return_value = mock_result
+        result = runner.invoke(app, [
+            "edit", "--prompt", "Video edit: remove the crowd in @Video1.",
+            "--video", "https://example.com/scene.mov",
+        ])
+    assert result.exit_code == 0
+    assert "task-edit" in result.output
+    kwargs = MockClient.return_value.submit_video_edit.call_args.kwargs
+    assert kwargs["output_format"] == "mov"
+
+
+def test_edit_requires_video():
+    result = runner.invoke(app, ["edit", "--prompt", "Video edit: drop the crowd."])
+    assert result.exit_code != 0
+
+
+def test_extend_forwards_duration():
+    mock_result = TaskResult(task_id="task-ext", status="queued", mode="V2V-Extend(vid=1)")
+    with patch("seedance_cli.commands.edit.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_extend.return_value = mock_result
+        result = runner.invoke(app, [
+            "extend", "--prompt", "Extend @Video1.",
+            "--video", "https://example.com/v.mov", "--duration", "11",
+        ])
+    assert result.exit_code == 0
+    assert MockClient.return_value.submit_video_extend.call_args.kwargs["duration"] == 11
+
+
+def test_extend_defaults_to_auto_duration():
+    mock_result = TaskResult(task_id="task-ext", status="queued", mode="V2V-Extend(vid=1)")
+    with patch("seedance_cli.commands.edit.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_extend.return_value = mock_result
+        result = runner.invoke(app, [
+            "extend", "--prompt", "Extend @Video1.", "--video", "https://example.com/v.mov",
+        ])
+    assert result.exit_code == 0
+    assert MockClient.return_value.submit_video_extend.call_args.kwargs["duration"] == -1
+
+
+def test_edit_surfaces_sdk_validation_error():
+    from seedance.exceptions import ValidationError
+    with patch("seedance_cli.commands.edit.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.side_effect = ValidationError(
+            "Video editing requires Seedance 2.5"
+        )
+        result = runner.invoke(app, [
+            "edit", "--prompt", "Video edit: drop the crowd.",
+            "--video", "https://example.com/v.mov",
+        ])
+    assert result.exit_code != 0
+
+
 # ---------------------------------------------------------------------------
 # upscale
 # ---------------------------------------------------------------------------
@@ -118,6 +214,37 @@ def test_status_failed_exits_nonzero():
     assert result.exit_code != 0
 
 
+def test_status_succeeded_shows_output_metadata():
+    mock_result = TaskResult(
+        task_id="task-123",
+        status="succeeded",
+        video_url="https://cdn.example.com/video.mov",
+        duration=11,
+        ratio="9:16",
+        resolution="720p",
+        output_format="mov",
+    )
+    with patch("seedance_cli.commands.tasks.SeedanceClient") as MockClient:
+        MockClient.return_value.check_task.return_value = mock_result
+        result = runner.invoke(app, ["status", "task-123"])
+    assert result.exit_code == 0
+    assert "mov" in result.output
+    assert "9:16" in result.output
+
+
+def test_status_explains_task_type_constraint_failure():
+    mock_result = TaskResult(
+        task_id="task-bad",
+        status="failed",
+        error={"code": "InvalidParameter.TaskTypeConstraint", "message": "ratio must be adaptive"},
+    )
+    with patch("seedance_cli.commands.tasks.SeedanceClient") as MockClient:
+        MockClient.return_value.check_task.return_value = mock_result
+        result = runner.invoke(app, ["status", "task-bad"])
+    assert result.exit_code != 0
+    assert "seedance edit" in result.output
+
+
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
@@ -135,6 +262,26 @@ def test_list_prints_table():
     assert result.exit_code == 0
     assert "t1" in result.output
     assert "t2" in result.output
+
+
+def test_list_forwards_model_filter():
+    with patch("seedance_cli.commands.tasks.SeedanceClient") as MockClient:
+        MockClient.return_value.list_tasks.return_value = {
+            "total": 0, "page_num": 1, "page_size": 10, "tasks": [],
+        }
+        result = runner.invoke(app, ["list", "--model", "2.5"])
+    assert result.exit_code == 0
+    assert MockClient.return_value.list_tasks.call_args.args[3] == "2.5"
+
+
+# ---------------------------------------------------------------------------
+# models
+# ---------------------------------------------------------------------------
+
+def test_models_table_lists_seedance_25():
+    result = runner.invoke(app, ["models"])
+    assert result.exit_code == 0
+    assert "2-5-260628" in result.output.replace("\n", "")
 
 
 # ---------------------------------------------------------------------------

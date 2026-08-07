@@ -53,7 +53,7 @@ def upscale(
             )
         except SeedanceError as exc:
             err(str(exc))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     if result.idempotent_hit:
         ok(f"Idempotent hit — reused task  [task_id=[task_id]{result.task_id}[/task_id]]")
@@ -79,7 +79,7 @@ def upscale_status(
         result = client.check_enhance_task(task_id)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     if result.video_url:

@@ -24,7 +24,7 @@ def buckets(
         found = client.list_tos_buckets()
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     if not found:
@@ -39,7 +39,7 @@ def buckets(
         table.add_row(b.get("name", ""), b.get("location", ""), b.get("creation_date", ""))
     console.print(table)
     console.print(
-        f"\n  Upload to one:  [cyan]seedance tos upload <file> --bucket <name>[/cyan]\n"
+        "\n  Upload to one:  [cyan]seedance tos upload <file> --bucket <name>[/cyan]\n"
     )
 
 
@@ -65,7 +65,7 @@ def upload(
             result = client.upload_to_tos(file_path, bucket, key, public=not private)
         except SeedanceError as exc:
             err(str(exc))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
     ok(f"Uploaded to [blue]{result.bucket}[/blue]/{result.key}")
     console.print(f"\n  url: [cyan]{result.url}[/cyan]")
