@@ -14,7 +14,10 @@ LEGACY_MODEL = "dreamina-seedance-2-0-260128"
 # No Seedance 2.5 "fast" variant exists; fast_mode always resolves to 2.0 fast.
 FAST_MODEL = "dreamina-seedance-2-0-fast-260128"
 
-SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "30"))
+# Task creation blocks while the API validates and fetches every reference
+# URL, so a multi-video request can take well over a minute to acknowledge.
+# Observed live: 3 reference videos exceeded 30s and orphaned a billed task.
+SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "120"))
 POLL_TIMEOUT = int(os.getenv("SEEDANCE_POLL_TIMEOUT", "15"))
 MAX_RETRIES = int(os.getenv("SEEDANCE_MAX_RETRIES", "3"))
 INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes")
@@ -52,6 +55,75 @@ TASK_TYPES: frozenset[str] = frozenset({
 })
 
 OUTPUT_FORMATS: frozenset[str] = frozenset({"mp4", "mov"})
+
+# ---------------------------------------------------------------------------
+# Task-intent detection
+# ---------------------------------------------------------------------------
+# When content.role is reference_*, Seedance 2.5 decides between reference-to-
+# video, video editing, and video extension by reading the PROMPT. That decision
+# happens after the task is queued, so a parameter clash is only reported once
+# the task has been consumed — minutes later.
+#
+# We mirror the documented trigger words locally to catch the clash up front.
+# The docs give these lists as "such as", so they are illustrative rather than
+# exhaustive; near-synonyms and the Chinese equivalents are included because the
+# model reads intent, not a fixed vocabulary. Detection is advisory: it only ever
+# produces an error when the caller ALSO passed parameters the detected task type
+# forbids, so a false positive on a compatible request costs nothing.
+#
+# Docs: https://docs.byteplus.com/en/docs/ModelArk/2607688#2.5_param_constraints
+
+# "edit the video, add, delete/remove, or modify/replace/change"
+EDIT_TRIGGER_PATTERNS: tuple[str, ...] = (
+    r"\bedit(s|ed|ing)?\b",
+    r"\badd(s|ed|ing)?\b",
+    r"\bdelete(s|d|ing)?\b",
+    r"\bremove(s|d|ing)?\b",
+    r"\bmodif(y|ies|ied|ying)\b",
+    r"\breplace(s|d|ing)?\b",
+    r"\bchange(s|d|ing)?\b",
+    r"\bswap(s|ped|ping)?\b",
+    r"\bredraw(s|n|ing)?\b",
+    r"\brepair(s|ed|ing)?\b",
+    r"\berase(s|d|ing)?\b",
+    r"编辑|添加|删除|移除|修改|替换|更换|重绘|修复",
+)
+
+# "extend forward/backward, continue, or continue the story"
+EXTEND_TRIGGER_PATTERNS: tuple[str, ...] = (
+    r"\bextend(s|ed|ing)?\b",
+    r"\bextension\b",
+    r"\bcontinue(s|d)?\b",
+    r"\bcontinuing\b",
+    r"\bcontinuation\b",
+    r"\bprolong(s|ed|ing)?\b",
+    r"延长|续写|扩展|继续|延续",
+)
+
+_TRIGGERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Extension first: its verbs are more specific, so "extend @Video1 and add a
+    # bird" reads as an extension rather than an edit.
+    (TASK_TYPE_EXTEND, EXTEND_TRIGGER_PATTERNS),
+    (TASK_TYPE_EDIT, EDIT_TRIGGER_PATTERNS),
+)
+
+
+def detect_task_intent(prompt: str) -> list[tuple[str, str]]:
+    """Return [(task_type, matched_phrase), ...] for intents the prompt implies.
+
+    Both can match at once ("extend @Video1, then remove the crowd"); the caller
+    decides what to do with an ambiguous result rather than us guessing.
+    """
+    import re
+
+    found: list[tuple[str, str]] = []
+    for task_type, patterns in _TRIGGERS:
+        for pattern in patterns:
+            m = re.search(pattern, prompt, re.IGNORECASE)
+            if m:
+                found.append((task_type, m.group(0)))
+                break
+    return found
 
 MODELS: dict[str, dict[str, Any]] = {
     "dreamina-seedance-2-5-260628": {

@@ -389,7 +389,7 @@ def seedance_edit_video(
     except SeedanceError as exc:
         return _err(exc)
 
-    return {
+    out = {
         **result.to_dict(),
         "message": (
             f"Video edit submitted. Poll with seedance_check_task(task_id='{result.task_id}') "
@@ -397,6 +397,12 @@ def seedance_edit_video(
             "video's ratio and duration."
         ),
     }
+    if result.warning:
+        # The prompt lacks an edit trigger word, so Seedance will likely generate a
+        # new clip instead of editing the source. Not an error — surface it so the
+        # caller can reword before waiting minutes for the wrong result.
+        out["message"] = f"WARNING: {result.warning}\n\n" + out["message"]
+    return out
 
 
 @mcp.tool()
@@ -456,7 +462,7 @@ def seedance_extend_video(
     except SeedanceError as exc:
         return _err(exc)
 
-    return {
+    out = {
         **result.to_dict(),
         "message": (
             f"Video extension submitted. Poll with seedance_check_task(task_id='{result.task_id}') "
@@ -464,6 +470,9 @@ def seedance_extend_video(
             "video's aspect ratio."
         ),
     }
+    if result.warning:
+        out["message"] = f"WARNING: {result.warning}\n\n" + out["message"]
+    return out
 
 
 @mcp.tool()

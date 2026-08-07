@@ -81,6 +81,23 @@ queued and been consumed. Seedance 2.0 had none of these restrictions.
 the *source* asset, not when you animate it. A 9:16 vertical cut of a
 16:9 first-frame job is a post-production crop, not a generation parameter.
 
+### The returned ratio is not from this list
+
+`adaptive` inherits the source's *exact* aspect ratio, so the `ratio` a finished
+task reports can be an arbitrary value outside the seven the request accepts. A
+live edit of a doc sample clip came back as **`269:215`**. Do not write code that
+assumes the response `ratio` is one of the request values, and do not feed it
+back into a later request unchanged — it will be rejected.
+
+### When reference videos are present, leave `ratio` unset
+
+With `video_urls` in play the task type is not knowable before submission — the
+model picks between reference-to-video, edit, and extend by reading the prompt.
+`adaptive` is the only value legal under all three, and it is the API's own
+default, so this repo resolves `auto` to `adaptive` whenever reference videos are
+present. Passing a concrete ratio there is what triggers the asynchronous
+constraint error.
+
 ### Pixel dimensions
 
 | Ratio | 480p | 720p |

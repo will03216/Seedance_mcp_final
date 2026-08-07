@@ -506,6 +506,189 @@ def test_check_task_without_output_metadata_is_none(client):
     assert result.duration is None
 
 
+# ---------------------------------------------------------------------------
+# Seedance 2.5: prompt-inferred task type (edit / extend detection)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Remove the background music from @Video1.",
+        "Add small animals to @Video1.",
+        "Replace the character in @Video1 with the character in @Image1.",
+        "Delete the logo in the corner.",
+        "Please modify the sky in @Video1.",
+        "Change the jacket to red.",
+        "编辑视频：删除背景音乐。",
+    ],
+)
+def test_edit_wording_with_video_ref_is_blocked_when_params_clash(client, prompt):
+    # Default duration=5 violates the edit constraint (must be -1).
+    with pytest.raises(ValidationError, match="reads as a video edit task"):
+        client.submit_image_to_video(prompt, video_urls=["https://e.com/v.mov"])
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Extend @Video1 backward.",
+        "Continue the story of @Video1.",
+        "Please continue this shot for another 5 seconds.",
+        "延长 @Video1，让镜头继续推进。",
+    ],
+)
+def test_extend_wording_with_video_ref_is_blocked_when_ratio_clashes(client, prompt):
+    with pytest.raises(ValidationError, match="reads as a video extend task"):
+        client.submit_image_to_video(prompt, video_urls=["https://e.com/v.mov"], ratio="16:9")
+
+
+def test_guard_names_the_dedicated_entrypoint(client):
+    with pytest.raises(ValidationError) as exc:
+        client.submit_image_to_video(
+            "Remove the crowd from @Video1.", video_urls=["https://e.com/v.mov"], ratio="16:9",
+        )
+    msg = str(exc.value)
+    assert "submit_video_edit()" in msg and "seedance_edit_video" in msg
+    # ...and tells the caller how to proceed if it really was a plain generation.
+    assert "reword the prompt" in msg
+
+
+def test_guard_is_advisory_not_a_hard_block(client):
+    # Edit wording, but the parameters already satisfy the edit constraints,
+    # so there is nothing to fail on and the request goes through.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Remove the crowd from @Video1.",
+            video_urls=["https://e.com/v.mov"], ratio="adaptive", duration=-1,
+        )
+    assert _payload_of(mock)["ratio"] == "adaptive"
+
+
+def test_innocent_reference_prompt_is_not_blocked(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "A woman walks through neon rain; camera rhythm follows @Video1.",
+            video_urls=["https://e.com/v.mov"], ratio="16:9", duration=8,
+        )
+    assert _payload_of(mock)["ratio"] == "16:9"
+
+
+def test_edit_wording_without_video_ref_is_not_blocked(client):
+    # Editing requires a reference_* role; with no video there is nothing to
+    # edit, so "add" in a text-to-video prompt must not trip the guard.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("Add a splash of colour to the scene.", duration=5)
+    assert _payload_of(mock)["ratio"] == "16:9"
+
+
+def test_declaring_task_type_bypasses_the_guard(client):
+    # An explicit task_type means the caller already knows; the dedicated
+    # methods rely on this to pass their own edit-worded prompts through.
+    with _mock_http({"id": "t", "status": "queued"}):
+        client.submit_image_to_video(
+            "Remove the crowd from @Video1.",
+            video_urls=["https://e.com/v.mov"],
+            ratio="adaptive", duration=-1, task_type="edit",
+        )
+
+
+def test_guard_does_not_apply_to_seedance_20(client):
+    # 2.0 has no task-type constraints at all.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Remove the crowd from @Video1.",
+            model="2.0", video_urls=["https://e.com/v.mov"], ratio="16:9", duration=5,
+        )
+    assert _payload_of(mock)["ratio"] == "16:9"
+
+
+# ---------------------------------------------------------------------------
+# Seedance 2.5: ratio default when the task type is not yet knowable
+# ---------------------------------------------------------------------------
+
+def test_ratio_auto_defaults_to_adaptive_when_video_refs_present(client):
+    # The model may classify this as reference/edit/extend from the prompt.
+    # 'adaptive' is the only value legal under all three (and the API default),
+    # so defaulting to 16:9 here would manufacture an async failure.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Camera rhythm follows @Video1.", video_urls=["https://e.com/v.mov"],
+        )
+    assert _payload_of(mock)["ratio"] == "adaptive"
+
+
+def test_ratio_auto_still_defaults_to_16_9_without_video_refs(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video("A portrait.", image_urls=["https://e.com/a.jpg"])
+    assert _payload_of(mock)["ratio"] == "16:9"
+
+
+def test_ratio_auto_defaults_to_16_9_with_video_refs_on_20(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Camera follows the clip.", model="2.0", video_urls=["https://e.com/v.mp4"],
+        )
+    assert _payload_of(mock)["ratio"] == "16:9"
+
+
+# ---------------------------------------------------------------------------
+# Seedance 2.5: missing trigger word on the dedicated methods
+# ---------------------------------------------------------------------------
+
+def test_edit_without_trigger_word_warns(client):
+    with _mock_http({"id": "t", "status": "queued"}):
+        result = client.submit_video_edit(
+            "Make it look more cinematic.", ["https://e.com/v.mov"],
+        )
+    assert "no edit trigger word" in result.warning
+    assert result.to_dict()["warning"]
+
+
+def test_edit_with_trigger_word_does_not_warn(client):
+    with _mock_http({"id": "t", "status": "queued"}):
+        result = client.submit_video_edit(
+            "Remove the crowd from @Video1.", ["https://e.com/v.mov"],
+        )
+    assert result.warning == ""
+
+
+def test_extend_without_trigger_word_warns(client):
+    with _mock_http({"id": "t", "status": "queued"}):
+        result = client.submit_video_extend(
+            "The camera drifts across the map.", ["https://e.com/v.mov"],
+        )
+    assert "no extend trigger word" in result.warning
+
+
+def test_extend_with_trigger_word_does_not_warn(client):
+    with _mock_http({"id": "t", "status": "queued"}):
+        result = client.submit_video_extend(
+            "Continue @Video1 for another 5 seconds.", ["https://e.com/v.mov"],
+        )
+    assert result.warning == ""
+
+
+# ---------------------------------------------------------------------------
+# Seedance 2.5: response ratio is not restricted to the request enum
+# ---------------------------------------------------------------------------
+
+def test_adaptive_output_ratio_may_be_non_standard(client):
+    # Observed live: an edit of a 269x215-ish source returned ratio="269:215".
+    # 'adaptive' inherits the source's exact aspect ratio, so the response value
+    # is NOT one of the seven values the request accepts.
+    with _mock_http({
+        "status": "succeeded",
+        "output": {
+            "video_url": "https://cdn/v.mov", "duration": 16,
+            "ratio": "269:215", "resolution": "720p", "output_format": "mov",
+        },
+    }):
+        result = client.check_task("t")
+    assert result.ratio == "269:215"
+    assert result.duration == 16
+    assert result.output_format == "mov"
+
+
 def test_list_tasks_accepts_model_filter(client):
     with _mock_http({"total": 0, "items": []}) as mock:
         client.list_tasks(model_filter="2.5")

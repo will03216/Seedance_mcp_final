@@ -212,6 +212,54 @@ def test_edit_video_error_returns_error_dict():
     assert "Seedance 2.5" in result["error"]
 
 
+def test_edit_video_surfaces_missing_trigger_warning():
+    from seedance_mcp.server import seedance_edit_video
+    mock_result = TaskResult(
+        task_id="t", status="queued", mode="V2V-Edit(vid=1)",
+        warning="Prompt contains no edit trigger word ('add', 'remove', ...).",
+    )
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.return_value = mock_result
+        result = seedance_edit_video("Make it prettier.", video_urls=["https://a/v.mov"])
+    assert result["message"].startswith("WARNING:")
+    assert "no edit trigger word" in result["message"]
+
+
+def test_extend_video_surfaces_missing_trigger_warning():
+    from seedance_mcp.server import seedance_extend_video
+    mock_result = TaskResult(
+        task_id="t", status="queued", mode="V2V-Extend(vid=1)",
+        warning="Prompt contains no extend trigger word ('continue', ...).",
+    )
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_extend.return_value = mock_result
+        result = seedance_extend_video("The camera drifts.", video_urls=["https://a/v.mov"])
+    assert result["message"].startswith("WARNING:")
+
+
+def test_edit_video_without_warning_has_clean_message():
+    from seedance_mcp.server import seedance_edit_video
+    mock_result = TaskResult(task_id="t", status="queued", mode="V2V-Edit(vid=1)")
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_video_edit.return_value = mock_result
+        result = seedance_edit_video("Remove the crowd.", video_urls=["https://a/v.mov"])
+    assert not result["message"].startswith("WARNING:")
+
+
+def test_generic_tool_reports_inferred_task_type_clash_as_error():
+    # The guard lives in the SDK; the MCP layer must pass its message through
+    # rather than swallowing it.
+    from seedance.exceptions import ValidationError
+    from seedance_mcp.server import seedance_image_to_video
+    with patch("seedance_mcp.server.SeedanceClient") as MockClient:
+        MockClient.return_value.submit_image_to_video.side_effect = ValidationError(
+            "This prompt reads as a video edit task (matched 'Remove')"
+        )
+        result = seedance_image_to_video("Remove the crowd.", video_urls=["https://a/v.mov"])
+    assert result["status"] == "error"
+    assert "reads as a video edit task" in result["error"]
+
+
 def test_check_task_explains_task_type_constraint_failure():
     _, check, *_ = _import_tools()
     mock_result = TaskResult(

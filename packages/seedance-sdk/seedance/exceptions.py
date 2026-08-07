@@ -22,6 +22,15 @@ class APIError(SeedanceError):
         self.status_code = status_code
 
 
+class SubmitTimeoutError(APIError):
+    """Raised when a task-creation request times out while reading the response.
+
+    The POST usually reached the server, so a task may exist and be billed even
+    though no task_id came back. Never retried: the endpoint is not idempotent,
+    so a retry would create a second task.
+    """
+
+
 class TaskTypeConstraintError(APIError):
     """Raised for InvalidParameter.TaskTypeConstraint (Seedance 2.5).
 

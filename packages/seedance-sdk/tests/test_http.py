@@ -5,13 +5,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from seedance.exceptions import APIError, TaskTypeConstraintError
+from seedance.exceptions import APIError, SubmitTimeoutError, TaskTypeConstraintError
 from seedance.http import (
     _do_request,
     error_for_body,
     extract_output_field,
     extract_video_url,
     parse_issues,
+    request_with_retry,
 )
 
 CONSTRAINT_BODY = (
@@ -78,6 +79,56 @@ def test_non_object_json_response_raises_api_error():
 def test_malformed_json_response_raises_api_error():
     with _urlopen_returning("<html>oops</html>"), pytest.raises(APIError, match="Malformed JSON"):
         _do_request("https://example.com/x", method="GET", headers={})
+
+
+def test_post_timeout_raises_submit_timeout_error():
+    with patch("seedance.http.request.urlopen", side_effect=TimeoutError("read timed out")), \
+            pytest.raises(SubmitTimeoutError, match="may have been created"):
+        _do_request("https://example.com/tasks", method="POST", headers={}, payload={"a": 1})
+
+
+def test_submit_timeout_is_a_seedance_error():
+    # Callers (and the MCP layer) only catch SeedanceError; a bare TimeoutError
+    # would escape their handling entirely.
+    from seedance.exceptions import SeedanceError
+    with patch("seedance.http.request.urlopen", side_effect=TimeoutError("x")):
+        try:
+            _do_request("https://e/tasks", method="POST", headers={}, payload={"a": 1})
+        except SeedanceError:
+            pass
+        else:
+            raise AssertionError("did not raise SeedanceError")
+
+
+def test_post_timeout_is_never_retried():
+    # Task creation is not idempotent — a retry bills a second generation.
+    calls = {"n": 0}
+
+    def boom(*a, **k):
+        calls["n"] += 1
+        raise TimeoutError("read timed out")
+
+    with patch("seedance.http.request.urlopen", side_effect=boom), \
+            pytest.raises(SubmitTimeoutError):
+        request_with_retry(
+            "https://e/tasks", method="POST", headers={}, payload={"a": 1}, max_retries=3,
+        )
+    assert calls["n"] == 1, "POST timeout must not be retried"
+
+
+def test_get_timeout_is_retried_and_not_a_submit_error():
+    # GETs are idempotent, so polling should still retry.
+    calls = {"n": 0}
+
+    def boom(*a, **k):
+        calls["n"] += 1
+        raise TimeoutError("read timed out")
+
+    with patch("seedance.http.request.urlopen", side_effect=boom), \
+            patch("seedance.http.time.sleep"), pytest.raises(APIError) as exc:
+        request_with_retry("https://e/tasks/1", method="GET", headers={}, max_retries=3)
+    assert not isinstance(exc.value, SubmitTimeoutError)
+    assert calls["n"] == 3
 
 
 def test_object_json_response_passes_through():

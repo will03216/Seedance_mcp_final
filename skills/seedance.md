@@ -247,6 +247,26 @@ immediately.
 The model decides which reference video to operate on **from your prompt**, so
 name the target explicitly (`@Video1`) whenever you pass more than one.
 
+**The prompt must contain a trigger word, or the task type will not fire.**
+Seedance classifies edit and extension from the prompt text, not from which tool
+you called:
+
+| Intent | Trigger words (docs give these as "such as" — not exhaustive) |
+|---|---|
+| Edit | edit the video, add, delete/remove, modify/replace/change |
+| Extend | extend forward/backward, continue, continue the story |
+
+Lead with the operation — "Video edit: remove…", "Extend @Video1…". A prompt with
+no trigger word is classified as a plain reference-to-video generation and returns
+a **brand-new clip instead of an edited one**: a silent wrong result, not an
+error. The CLI and MCP tools warn when they spot this, but the fix is in the
+wording.
+
+The reverse also holds, and the docs call it out: **avoid edit/extend verbs in an
+ordinary reference-to-video prompt**, or the model may misclassify it and fail the
+task. If you just want a new video that borrows camera rhythm from a clip, do not
+write "add" or "continue" — write "camera movement follows @Video1".
+
 ```
 /seedance edit Video edit: remove everyone in @Video1 except the protagonist
   --video https://.../scene.mov
@@ -380,6 +400,10 @@ best practices for splitting portrait references, and failure recovery.
 ## Troubleshooting
 
 **`InputImageSensitiveContentDetected`** — Use `seedance_generate` (auto-uploads to asset library) instead of passing the raw URL to `seedance_image_to_video`.
+
+**"This prompt reads as a video edit/extend task"** — The local guard caught a clash before
+submission. Either switch to `seedance edit` / `seedance extend`, or, if you meant a plain
+reference-to-video generation, reword the prompt to drop the trigger verb it named.
 
 **`InvalidParameter.TaskTypeConstraint`** — The parameters clashed with the task type the model
 inferred from your prompt. On Seedance 2.5 the aspect ratio is locked to the source for
