@@ -13,7 +13,7 @@ from typing import Any
 from urllib import error, request
 
 from .config import MAX_RETRIES, POLL_TIMEOUT
-from .exceptions import APIError, TaskTypeConstraintError
+from .exceptions import APIError, SubmitTimeoutError, TaskTypeConstraintError
 
 logger = logging.getLogger("seedance")
 
@@ -76,6 +76,21 @@ def _do_request(
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")
         raise error_for_body(detail, exc.code) from exc
+    except TimeoutError as exc:
+        # urlopen raises a bare TimeoutError on socket timeout — it is NOT a
+        # URLError, so it would otherwise escape as a non-SeedanceError and
+        # bypass every caller's error handling.
+        if method == "POST":
+            raise SubmitTimeoutError(
+                f"Timed out after {timeout}s waiting for a response from {url}. "
+                "The request was most likely accepted, so a task may have been "
+                "created and billed even though no task_id came back — check "
+                "`seedance list` / seedance_list_tasks before resubmitting, or you "
+                "will pay for the job twice. Requests carrying several reference "
+                "videos are the usual cause; raise SEEDANCE_SUBMIT_TIMEOUT if this "
+                "recurs."
+            ) from exc
+        raise APIError(f"Timed out after {timeout}s waiting for {url}.") from exc
     except error.URLError as exc:
         raise APIError(f"Network error: {exc.reason}") from exc
     except ValueError as exc:
@@ -106,6 +121,10 @@ def request_with_retry(
     for attempt in range(max_retries):
         try:
             return _do_request(url, method=method, headers=headers, payload=payload, timeout=timeout)
+        except SubmitTimeoutError:
+            # Task creation is not idempotent. The server most likely accepted
+            # the request, so retrying would create — and bill — a second task.
+            raise
         except APIError as exc:
             last_exc = exc
             # 4xx errors are not retryable (bad request, auth failure, etc.)

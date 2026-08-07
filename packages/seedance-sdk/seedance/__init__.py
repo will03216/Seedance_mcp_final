@@ -14,6 +14,7 @@ from .exceptions import (
     AuthError,
     SeedanceError,
     StorageError,
+    SubmitTimeoutError,
     TaskTypeConstraintError,
     ValidationError,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "ValidationError",
     "APIError",
     "TaskTypeConstraintError",
+    "SubmitTimeoutError",
     "AssetError",
     "StorageError",
     # Result types

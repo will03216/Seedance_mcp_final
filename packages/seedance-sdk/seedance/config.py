@@ -14,7 +14,10 @@ LEGACY_MODEL = "dreamina-seedance-2-0-260128"
 # No Seedance 2.5 "fast" variant exists; fast_mode always resolves to 2.0 fast.
 FAST_MODEL = "dreamina-seedance-2-0-fast-260128"
 
-SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "30"))
+# Task creation blocks while the API validates and fetches every reference
+# URL, so a multi-video request can take well over a minute to acknowledge.
+# Observed live: 3 reference videos exceeded 30s and orphaned a billed task.
+SUBMIT_TIMEOUT = int(os.getenv("SEEDANCE_SUBMIT_TIMEOUT", "120"))
 POLL_TIMEOUT = int(os.getenv("SEEDANCE_POLL_TIMEOUT", "15"))
 MAX_RETRIES = int(os.getenv("SEEDANCE_MAX_RETRIES", "3"))
 INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes")
