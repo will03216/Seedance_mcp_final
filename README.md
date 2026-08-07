@@ -30,9 +30,20 @@ generate at 720p and run `seedance upscale` for a 4K finish.
 2. **Duration is locked for video edits.** An edit keeps the source clip's length, so `duration`
    must be `-1`. `seedance edit` sets this for you.
 
-If a job slips past local validation, the API rejects it *asynchronously* — the task fails minutes
-later with `InvalidParameter.TaskTypeConstraint`. `seedance status` and `seedance_check_task` both
-explain that error and point you at the right command.
+First-frame is decided from a *parameter*, so it is always checked before submission. Editing and
+extension are decided from the *prompt*, which the API only reads after queuing — so the SDK scans
+for the documented trigger words (`add`, `remove`, `replace`, `change`, `extend`, `continue`, …)
+whenever reference videos are present, and refuses a request whose parameters would clash. The check
+is advisory: it fires only when the parameters actually violate the detected task type, so an
+edit-worded prompt that already passes `adaptive`/`-1` goes through untouched.
+
+The reverse case is real too, and the docs warn about it: edit/extend wording inside an ordinary
+reference-to-video prompt can make the model misclassify the task. The error message names both ways
+out — switch to the dedicated command, or reword the prompt.
+
+If a job still slips past, the API rejects it *asynchronously* — the task fails minutes later with
+`InvalidParameter.TaskTypeConstraint`. `seedance status` and `seedance_check_task` both explain that
+error and point you at the right command.
 
 ---
 
@@ -172,6 +183,10 @@ seedance_extend_video(
 )
 → { task_id: "cgt-xxxx", status: "queued", mode: "V2V-Extend(vid=1)" }
 ```
+
+Because `adaptive` inherits the source's exact aspect ratio, a finished edit reports a `ratio` that
+need not be one of the seven request values — a live run returned `269:215`. Don't feed a response
+`ratio` back into a later request.
 
 Both default to `output_format="mov"`, which BytePlus recommends for edits and extensions: its
 higher colour precision (H.264 + YUV444P + PCM) keeps audio and video in sync and survives further

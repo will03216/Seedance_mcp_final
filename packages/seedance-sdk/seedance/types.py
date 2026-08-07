@@ -22,6 +22,9 @@ class TaskResult:
     ratio: str | None = None
     resolution: str | None = None
     output_format: str | None = None
+    # Non-fatal advisory raised at submission — e.g. an edit prompt with no
+    # trigger word, which Seedance will silently treat as a new generation.
+    warning: str = ""
     raw: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
@@ -42,6 +45,8 @@ class TaskResult:
             out["resolution"] = self.resolution
         if self.output_format:
             out["output_format"] = self.output_format
+        if self.warning:
+            out["warning"] = self.warning
         return out
 
     @property

@@ -30,6 +30,7 @@ from .config import (
     TOS_ENDPOINT,
     TOS_REGION,
     __version__,
+    detect_task_intent,
     is_seedance_25,
     model_caps,
     resolve_model,
@@ -178,7 +179,13 @@ class SeedanceClient:
         return task_type
 
     @staticmethod
-    def _resolve_ratio(ratio: str, task_type: str, model: str) -> str:
+    def _resolve_ratio(
+        ratio: str,
+        task_type: str,
+        model: str,
+        *,
+        has_video_refs: bool = False,
+    ) -> str:
         """Turn the 'auto' sentinel into a concrete ratio, and reject ratios
         that the task type forbids.
 
@@ -187,12 +194,23 @@ class SeedanceClient:
         Rejecting here converts an asynchronous InvalidParameter.TaskTypeConstraint
         failure (returned minutes later, after the task is consumed) into an
         immediate error.
+
+        When reference videos are present the task type is not knowable up front
+        — the model picks between reference-to-video, edit, and extend by reading
+        the prompt. 'adaptive' is the only value legal under all three, and it is
+        also the API's own default, so 'auto' resolves to it rather than to 16:9.
+        Defaulting to a concrete ratio there would turn a request that would have
+        worked into a guaranteed asynchronous failure.
         """
         caps = model_caps(model)
         adaptive_only = task_type in caps.get("adaptive_only_task_types", [])
 
         if ratio == RATIO_AUTO or not ratio:
-            return "adaptive" if adaptive_only else "16:9"
+            if adaptive_only:
+                return "adaptive"
+            if has_video_refs and caps.get("adaptive_only_task_types"):
+                return "adaptive"
+            return "16:9"
         if adaptive_only and ratio != "adaptive":
             raise ValidationError(
                 f"ratio must be 'adaptive' for {task_type} tasks on {model} — got {ratio!r}. "
@@ -204,6 +222,89 @@ class SeedanceClient:
                 f"Invalid ratio {ratio!r}. Must be one of: {', '.join(sorted(caps['ratios']))}"
             )
         return ratio
+
+    # Which SDK method / MCP tool to point the caller at per detected intent.
+    _INTENT_ENTRYPOINTS = {
+        TASK_TYPE_EDIT: ("submit_video_edit()", "seedance_edit_video", "seedance edit"),
+        TASK_TYPE_EXTEND: ("submit_video_extend()", "seedance_extend_video", "seedance extend"),
+    }
+
+    @classmethod
+    def _guard_inferred_task_type(
+        cls,
+        prompt: str,
+        *,
+        model: str,
+        ratio: str,
+        duration: int,
+        has_video_refs: bool,
+    ) -> None:
+        """Reject parameters that clash with the task type the model will infer.
+
+        Only applies when the caller did not declare a task_type and reference
+        videos are present — that is the exact situation where Seedance reads the
+        prompt to choose between reference-to-video, editing, and extension, and
+        reports a clash asynchronously.
+
+        Deliberately advisory: an intent is only an error when the parameters
+        actually violate that task type's constraints, so a false positive on an
+        otherwise-valid request costs nothing.
+        """
+        if not has_video_refs or not model_caps(model).get("adaptive_only_task_types"):
+            return
+
+        for task_type, matched in detect_task_intent(prompt):
+            caps = model_caps(model)
+            problems = []
+            if (
+                task_type in caps.get("adaptive_only_task_types", [])
+                and ratio not in (RATIO_AUTO, "", "adaptive")
+            ):
+                problems.append(f"ratio must be 'adaptive' (got {ratio!r})")
+            if (
+                task_type in caps.get("auto_duration_only_task_types", [])
+                and duration != DURATION_AUTO
+            ):
+                problems.append(f"duration must be -1 (got {duration})")
+            if not problems:
+                continue
+
+            sdk_call, mcp_tool, cli_cmd = cls._INTENT_ENTRYPOINTS[task_type]
+            raise ValidationError(
+                f"This prompt reads as a video {task_type} task (matched {matched!r}), "
+                f"which Seedance 2.5 locks: {'; '.join(problems)}. "
+                f"Submitting as-is would queue the task and then fail with "
+                f"InvalidParameter.TaskTypeConstraint minutes later.\n"
+                f"  • If you meant to {task_type} the video, use {sdk_call} / {mcp_tool} "
+                f"/ '{cli_cmd}', which set these for you.\n"
+                f"  • If you meant a plain reference-to-video generation, reword the prompt "
+                f"to avoid {matched!r} — the docs warn that edit/extend wording causes the "
+                f"model to misclassify reference-to-video tasks."
+            )
+
+    @staticmethod
+    def _warn_missing_trigger(prompt: str, task_type: str) -> str:
+        """Warn when an edit/extend prompt lacks any trigger word.
+
+        Without one the model classifies the request as reference-to-video and
+        generates a brand-new clip instead of operating on the source — a silent
+        wrong result rather than an error. Returns the warning text, or "".
+        """
+        if any(t == task_type for t, _ in detect_task_intent(prompt)):
+            return ""
+        examples = {
+            TASK_TYPE_EDIT: "'edit the video', 'add', 'remove', 'replace', 'change'",
+            TASK_TYPE_EXTEND: "'extend forward/backward', 'continue', 'continue the story'",
+        }[task_type]
+        warning = (
+            f"Prompt contains no {task_type} trigger word ({examples}). Seedance decides the "
+            f"task type from the prompt, so it will likely treat this as a plain "
+            f"reference-to-video generation and produce a NEW clip instead of "
+            f"{'editing' if task_type == TASK_TYPE_EDIT else 'extending'} the source. "
+            f"Reword the prompt to state the operation explicitly."
+        )
+        logger.warning("%s", warning)
+        return warning
 
     @staticmethod
     def _validate(
@@ -485,10 +586,17 @@ class SeedanceClient:
         )
         self._validate_refs(image_urls, video_urls, audio_urls, model)
 
+        declared_task_type = task_type
         task_type = self._infer_task_type(
             task_type, first_frame_url=first_frame_url, last_frame_url=last_frame_url
         )
-        ratio = self._resolve_ratio(ratio, task_type, model)
+        has_video_refs = bool(video_urls)
+        if declared_task_type == TASK_TYPE_AUTO:
+            self._guard_inferred_task_type(
+                prompt, model=model, ratio=ratio, duration=duration,
+                has_video_refs=has_video_refs,
+            )
+        ratio = self._resolve_ratio(ratio, task_type, model, has_video_refs=has_video_refs)
         self._validate(
             ratio, duration, resolution, model,
             task_type=task_type,
@@ -597,10 +705,17 @@ class SeedanceClient:
         all_image_urls = [u for u in ([image_url] if image_url else []) + list(image_urls or []) if u]
         self._validate_refs(all_image_urls, video_urls, audio_urls, model)
 
+        declared_task_type = task_type
         task_type = self._infer_task_type(
             task_type, first_frame_url=first_frame_url, last_frame_url=last_frame_url
         )
-        ratio = self._resolve_ratio(ratio, task_type, model)
+        has_video_refs = bool(video_urls)
+        if declared_task_type == TASK_TYPE_AUTO:
+            self._guard_inferred_task_type(
+                prompt, model=model, ratio=ratio, duration=duration,
+                has_video_refs=has_video_refs,
+            )
+        ratio = self._resolve_ratio(ratio, task_type, model, has_video_refs=has_video_refs)
         self._validate(
             ratio, duration, resolution, model,
             task_type=task_type,
@@ -757,8 +872,9 @@ class SeedanceClient:
             )
         if not video_urls:
             raise ValidationError("video_urls is required for a video edit task.")
+        warning = self._warn_missing_trigger(prompt, TASK_TYPE_EDIT)
 
-        return self.submit_image_to_video(
+        result = self.submit_image_to_video(
             prompt,
             image_urls=image_urls,
             video_urls=video_urls,
@@ -772,6 +888,8 @@ class SeedanceClient:
             task_type=TASK_TYPE_EDIT,
             seed=seed,
         )
+        result.warning = warning
+        return result
 
     def submit_video_extend(
         self,
@@ -807,8 +925,9 @@ class SeedanceClient:
             )
         if not video_urls:
             raise ValidationError("video_urls is required for a video extension task.")
+        warning = self._warn_missing_trigger(prompt, TASK_TYPE_EXTEND)
 
-        return self.submit_image_to_video(
+        result = self.submit_image_to_video(
             prompt,
             image_urls=image_urls,
             video_urls=video_urls,
@@ -822,6 +941,8 @@ class SeedanceClient:
             task_type=TASK_TYPE_EXTEND,
             seed=seed,
         )
+        result.warning = warning
+        return result
 
     # ------------------------------------------------------------------
     # Task management

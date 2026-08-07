@@ -54,6 +54,37 @@ with the offending parameter named. Using `seedance edit` / `seedance extend`
 (or their MCP equivalents) sets the locked values for you, which is why they
 are preferred over describing the operation through `seedance_generate`.
 
+### The prompt-intent guard
+
+First-frame is decided from a *parameter* (`content.role`), so it can always be
+checked up front. Editing and extension are decided from the *prompt*, which the
+API only reads after the task is queued — so those clashes come back minutes
+later on a failed task.
+
+To close that gap, the SDK scans the prompt for the documented trigger words
+whenever reference videos are present and no task type was declared:
+
+| Intent | Trigger words (docs give these as "such as" — not exhaustive) |
+|---|---|
+| Edit | edit the video, add, delete/remove, modify/replace/change |
+| Extend | extend forward/backward, continue, continue the story |
+
+The check is **advisory**: it raises only when the parameters you passed would
+actually violate the detected task type's constraints. An edit-worded prompt with
+`ratio="adaptive"` and `duration=-1` already satisfies them and goes through
+untouched, so a false positive costs nothing. The error names both ways out —
+switch to the dedicated command, or reword the prompt if you really meant a plain
+reference-to-video generation.
+
+That second option matters: the docs warn that edit/extend wording in a
+reference-to-video prompt can make the model misclassify the task. If you want a
+plain generation, keep those verbs out of the prompt.
+
+The dedicated commands run the check in reverse. `seedance edit` with a prompt
+containing no edit trigger word emits a warning, because Seedance will classify
+it as a plain generation and return a **brand-new clip instead of an edited one** —
+a silent wrong result rather than an error.
+
 ## Asset budget habits
 
 Keep the request simple:
