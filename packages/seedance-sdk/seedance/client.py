@@ -7,23 +7,50 @@ from typing import Any
 
 from .asset import AssetClient
 from .config import (
-    BASE_URL, DEFAULT_MODEL, DURATION_AUTO, FAST_MODEL, INCLUDE_RAW,
-    LEGACY_MODEL, MODELS, OUTPUT_FORMATS, PAGE_SIZE_MAX, POLL_TIMEOUT,
-    RATIO_AUTO, SUBMIT_TIMEOUT, TASK_TYPE_AUTO, TASK_TYPE_EDIT,
-    TASK_TYPE_EXTEND, TASK_TYPE_FIRST_FRAME, TASK_TYPE_REFERENCE, TASK_TYPES,
-    TERMINAL_STATUSES, TOS_DEFAULT_BUCKET, TOS_ENDPOINT, TOS_REGION,
-    __version__, is_seedance_25, model_caps, resolve_model,
+    BASE_URL,
+    DEFAULT_MODEL,
+    DURATION_AUTO,
+    FAST_MODEL,
+    INCLUDE_RAW,
+    LEGACY_MODEL,
+    MODELS,
+    OUTPUT_FORMATS,
+    PAGE_SIZE_MAX,
+    POLL_TIMEOUT,
+    RATIO_AUTO,
+    SUBMIT_TIMEOUT,
+    TASK_TYPE_AUTO,
+    TASK_TYPE_EDIT,
+    TASK_TYPE_EXTEND,
+    TASK_TYPE_FIRST_FRAME,
+    TASK_TYPE_REFERENCE,
+    TASK_TYPES,
+    TERMINAL_STATUSES,
+    TOS_DEFAULT_BUCKET,
+    TOS_ENDPOINT,
+    TOS_REGION,
+    __version__,
+    is_seedance_25,
+    model_caps,
+    resolve_model,
 )
 from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
-from .exceptions import StorageError, ValidationError
+from .exceptions import ValidationError
 from .http import (
-    extract_nested, extract_output_field, extract_video_url, request_with_retry,
+    extract_nested,
+    extract_output_field,
+    extract_video_url,
+    request_with_retry,
 )
 from .mediakit import MediaKitClient
 from .tos import TOSClient
 from .types import (
-    AssetGroupResult, AssetResult, GenerateResult, TaskResult,
-    TOSUploadResult, UpscaleResult,
+    AssetGroupResult,
+    AssetResult,
+    GenerateResult,
+    TaskResult,
+    TOSUploadResult,
+    UpscaleResult,
 )
 
 logger = logging.getLogger("seedance")
@@ -93,7 +120,7 @@ class SeedanceClient:
         path: str,
         *,
         method: str,
-        payload: dict | None = None,
+        payload: dict[str, Any] | None = None,
         timeout: int = POLL_TIMEOUT,
         correlation_id: str = "",
     ) -> dict[str, Any]:
@@ -111,7 +138,7 @@ class SeedanceClient:
         return str(uuid.uuid4())[:8]
 
     @staticmethod
-    def _maybe_raw(resp: dict) -> dict:
+    def _maybe_raw(resp: dict[str, Any]) -> dict[str, Any]:
         return {"raw": resp} if INCLUDE_RAW else {}
 
     # ------------------------------------------------------------------
@@ -251,8 +278,8 @@ class SeedanceClient:
         last_frame_url: str | None = None,
         video_urls: list[str] | None = None,
         audio_urls: list[str] | None = None,
-    ) -> list[dict]:
-        content: list[dict] = [{"type": "text", "text": prompt}]
+    ) -> list[dict[str, Any]]:
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
         if first_frame_url:
             content.append({"type": "image_url", "image_url": {"url": first_frame_url}, "role": "first_frame"})
         if last_frame_url:
@@ -330,8 +357,8 @@ class SeedanceClient:
         seed: int | None,
         camerafixed: bool,
         output_format: str = "",
-    ) -> dict:
-        params: dict = {}
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
         if seed is not None:
             params["seed"] = seed
         if camerafixed:
@@ -581,7 +608,7 @@ class SeedanceClient:
             camerafixed=camerafixed,
         )
 
-        steps: list[dict] = []
+        steps: list[dict[str, Any]] = []
         asset_ids_used: list[str] = []
         resolved_image_urls: list[str] = []
 

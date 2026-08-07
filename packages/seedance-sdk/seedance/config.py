@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 __version__ = "2.1.0"
 
@@ -52,7 +53,7 @@ TASK_TYPES: frozenset[str] = frozenset({
 
 OUTPUT_FORMATS: frozenset[str] = frozenset({"mp4", "mov"})
 
-MODELS: dict[str, dict] = {
+MODELS: dict[str, dict[str, Any]] = {
     "dreamina-seedance-2-5-260628": {
         "label": "Seedance 2.5",
         "alias": "2.5",
@@ -153,7 +154,7 @@ def resolve_model(model: str) -> str:
     return MODEL_ALIASES.get(model.strip().lower(), model)
 
 
-def model_caps(model: str) -> dict:
+def model_caps(model: str) -> dict[str, Any]:
     return MODELS.get(model, MODELS[DEFAULT_MODEL])
 
 

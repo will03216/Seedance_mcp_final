@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import typer
 
-from .commands import auth, assets, edit, generate, models, skill, tasks, tos, upscale
+from .commands import assets, auth, edit, generate, models, skill, tasks, tos, upscale
 
 app = typer.Typer(
     name="seedance",
@@ -58,14 +58,15 @@ def ping(
     """Verify server connectivity and credential configuration."""
     from seedance import SeedanceClient
     from seedance.exceptions import SeedanceError
-    from .console import console, err, ok, info
+
+    from .console import console, err, info, ok
 
     client = SeedanceClient(profile=profile)
     try:
         result = client.ping()
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     ok(f"Connected  (SDK v{result['version']})")

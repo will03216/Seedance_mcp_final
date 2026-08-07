@@ -21,7 +21,7 @@ CONFIG_PATH = Path.home() / ".seedance" / "config"
 
 def _load_dotenv() -> None:
     try:
-        from dotenv import load_dotenv  # type: ignore[import]
+        from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass

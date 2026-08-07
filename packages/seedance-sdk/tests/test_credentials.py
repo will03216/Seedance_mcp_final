@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import configparser
-import os
-from pathlib import Path
 
 import pytest
 
 from seedance.credentials import (
-    CREDENTIALS_PATH,
     clear_credentials,
     credentials_configured,
     load_api_key,

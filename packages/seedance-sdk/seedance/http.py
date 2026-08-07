@@ -65,19 +65,29 @@ def _do_request(
     *,
     method: str,
     headers: dict[str, str],
-    payload: dict | None = None,
+    payload: dict[str, Any] | None = None,
     timeout: int = POLL_TIMEOUT,
 ) -> dict[str, Any]:
     body = json.dumps(payload).encode() if payload else None
     req = request.Request(url, data=body, headers=headers, method=method)
     try:
         with request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
+            parsed = json.loads(resp.read().decode())
     except error.HTTPError as exc:
         detail = exc.read().decode(errors="ignore")
         raise error_for_body(detail, exc.code) from exc
     except error.URLError as exc:
         raise APIError(f"Network error: {exc.reason}") from exc
+    except ValueError as exc:
+        raise APIError(f"Malformed JSON in response from {url}: {exc}") from exc
+
+    # A proxy or error page can return valid JSON that is not an object; catching
+    # it here beats an AttributeError surfacing far from the cause.
+    if not isinstance(parsed, dict):
+        raise APIError(
+            f"Expected a JSON object from {url}, got {type(parsed).__name__}."
+        )
+    return parsed
 
 
 def request_with_retry(
@@ -85,7 +95,7 @@ def request_with_retry(
     *,
     method: str,
     headers: dict[str, str],
-    payload: dict | None = None,
+    payload: dict[str, Any] | None = None,
     timeout: int = POLL_TIMEOUT,
     max_retries: int = MAX_RETRIES,
     correlation_id: str = "",
@@ -114,7 +124,7 @@ def request_with_retry(
     ) from last_exc
 
 
-def extract_nested(data: dict, *keys: str) -> str:
+def extract_nested(data: dict[str, Any], *keys: str) -> str:
     """Safely extract a string from a nested dict without raising."""
     current: Any = data
     for key in keys:
@@ -128,7 +138,7 @@ def extract_nested(data: dict, *keys: str) -> str:
 _OUTPUT_CONTAINERS = ("content", "result", "output")
 
 
-def extract_output_field(task: dict, field: str) -> Any:
+def extract_output_field(task: dict[str, Any], field: str) -> Any:
     """Pull a field out of whichever output container the response uses.
 
     Falls back to the top level, where Seedance echoes request parameters such
@@ -144,6 +154,6 @@ def extract_output_field(task: dict, field: str) -> Any:
     return None if value in (None, "") else value
 
 
-def extract_video_url(task: dict) -> str | None:
+def extract_video_url(task: dict[str, Any]) -> str | None:
     url = extract_output_field(task, "video_url")
     return str(url) if url else None

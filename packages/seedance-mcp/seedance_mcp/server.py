@@ -26,12 +26,22 @@ except ImportError:
     pass
 
 try:
-    from mcp.server.fastmcp import FastMCP
     from mcp.server.transport_security import TransportSecuritySettings
 except ImportError as exc:
     raise SystemExit(
         "mcp package not found. Install it: pip install mcp"
     ) from exc
+
+# mcp 2.x renamed FastMCP to MCPServer and moved `transport_security` off the
+# constructor onto streamable_http_app(). The rest of the surface we use —
+# .tool(), .run(), .streamable_http_app() — is unchanged, so one flag covers
+# the difference and the package supports both major versions.
+try:
+    from mcp.server.mcpserver import MCPServer as _Server  # mcp >= 2.0
+    _TRANSPORT_SECURITY_ON_INIT = False
+except ImportError:
+    from mcp.server.fastmcp import FastMCP as _Server  # mcp 1.x
+    _TRANSPORT_SECURITY_ON_INIT = True
 
 from seedance import SeedanceClient
 from seedance.config import __version__
@@ -40,8 +50,13 @@ from seedance.exceptions import SeedanceError
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("seedance_mcp")
 
-mcp = FastMCP(
+# DNS-rebinding protection is disabled because the SSE deployment sits behind a
+# gateway that rewrites Host (see _Gateway below).
+_TRANSPORT_SECURITY = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+mcp = _Server(
     name="seedance",
+    **({"transport_security": _TRANSPORT_SECURITY} if _TRANSPORT_SECURITY_ON_INIT else {}),
     instructions=(
         "Tools for generating videos with BytePlus Seedance. Seedance 2.5 is the default "
         "model: up to 30s, 480p/720p, up to 30 reference images + 10 videos + 10 audio clips, "
@@ -65,7 +80,6 @@ mcp = FastMCP(
         "for Seedance 2.5, or [image1] / [video1] / [audio1] for Seedance 2.0. "
         "Do NOT use seedance_auto_generate — it blocks for minutes and causes MCP timeout errors."
     ),
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 
@@ -828,7 +842,11 @@ def _main() -> None:
         except ImportError as exc:
             raise SystemExit("SSE transport requires uvicorn: pip install uvicorn") from exc
 
-        mcp_app = mcp.streamable_http_app()
+        mcp_app = (
+            mcp.streamable_http_app()
+            if _TRANSPORT_SECURITY_ON_INIT
+            else mcp.streamable_http_app(transport_security=_TRANSPORT_SECURITY)
+        )
 
         class _Gateway:
             """ASGI middleware: health check, bearer-token auth, host-header rewrite."""

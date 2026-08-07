@@ -1,8 +1,7 @@
 """Tests for SeedanceClient — HTTP calls mocked at the urllib boundary."""
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

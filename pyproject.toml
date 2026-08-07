@@ -16,10 +16,20 @@ seedance-cli = { workspace = true }
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
 
-[tool.ruff.isort]
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # line length is handled by the formatter, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer's whole API is function-call defaults (typer.Option/Argument), which is
+# exactly what B008 flags. Unavoidable in a Typer CLI, so scope the exemption to
+# the command modules rather than disabling the rule everywhere.
+"packages/seedance-cli/seedance_cli/commands/*.py" = ["B008"]
+
+[tool.ruff.lint.isort]
 known-first-party = ["seedance", "seedance_mcp", "seedance_cli"]
 
 [tool.mypy]

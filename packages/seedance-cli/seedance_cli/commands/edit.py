@@ -63,7 +63,7 @@ def _submit(
             )
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     ok(
         f"Job submitted  [task_id=[task_id]{result.task_id}[/task_id]  "

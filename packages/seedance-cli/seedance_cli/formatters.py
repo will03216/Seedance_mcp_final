@@ -95,7 +95,6 @@ def steps_panel(steps: list[dict]) -> None:
     """Print pipeline steps from generate()."""
     for step in steps:
         name = step.get("step", "")
-        outcome = step.get("outcome", "")
         detail = step.get("group_id") or step.get("asset_id") or step.get("task_id") or ""
         label = {
             "create_asset_group": "Created asset group",

@@ -15,8 +15,9 @@ import datetime
 import hashlib
 import hmac as hmac_lib
 import logging
-from typing import Any
-from urllib import error, parse, request as urllib_request
+from typing import cast
+from urllib import error, parse
+from urllib import request as urllib_request
 from xml.etree import ElementTree
 
 from .config import TOS_ENDPOINT, TOS_REGION, TOS_SERVICE, TOS_TIMEOUT
@@ -56,7 +57,7 @@ def _sign(
     ``headers`` holds any caller-supplied request headers (e.g. content-type,
     x-tos-acl); host / x-tos-date / x-tos-content-sha256 are added here.
     """
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     x_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = x_date[:8]
 
@@ -152,7 +153,8 @@ class TOSClient:
         req = urllib_request.Request(url, data=data, headers=headers, method=method)
         try:
             with urllib_request.urlopen(req, timeout=TOS_TIMEOUT) as resp:
-                return resp.read()
+                # urlopen is Any-typed in typeshed; the body is bytes.
+                return cast(bytes, resp.read())
         except error.HTTPError as exc:
             detail = exc.read().decode(errors="ignore")
             raise APIError(f"TOS HTTP {exc.code}: {detail}", status_code=exc.code) from exc
@@ -262,7 +264,7 @@ class TOSClient:
             raise StorageError("bucket and key are required.")
         host = f"{bucket}.{self._endpoint}"
         path = "/" + _quote_path(key.lstrip("/"))
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         x_date = now.strftime("%Y%m%dT%H%M%SZ")
         short_date = x_date[:8]
         scope = f"{short_date}/{self._region}/{TOS_SERVICE}/request"

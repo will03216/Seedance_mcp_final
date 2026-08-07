@@ -25,10 +25,19 @@ from pathlib import Path
 from typing import Any
 
 from .config import (
-    MAX_RETRIES, MEDIAKIT_BASE_URL, MEDIAKIT_BITRATE_LEVELS, MEDIAKIT_CACHE_PATH,
-    MEDIAKIT_CACHE_TTL, MEDIAKIT_CLIENT_TOKEN_MAXLEN, MEDIAKIT_FPS_RANGE,
-    MEDIAKIT_RESOLUTION_LIMIT_RANGE, MEDIAKIT_RESOLUTIONS, MEDIAKIT_SCENES,
-    MEDIAKIT_TOOL_VERSIONS, POLL_TIMEOUT, SUBMIT_TIMEOUT,
+    MAX_RETRIES,
+    MEDIAKIT_BASE_URL,
+    MEDIAKIT_BITRATE_LEVELS,
+    MEDIAKIT_CACHE_PATH,
+    MEDIAKIT_CACHE_TTL,
+    MEDIAKIT_CLIENT_TOKEN_MAXLEN,
+    MEDIAKIT_FPS_RANGE,
+    MEDIAKIT_RESOLUTION_LIMIT_RANGE,
+    MEDIAKIT_RESOLUTIONS,
+    MEDIAKIT_SCENES,
+    MEDIAKIT_TOOL_VERSIONS,
+    POLL_TIMEOUT,
+    SUBMIT_TIMEOUT,
 )
 from .exceptions import ValidationError
 from .http import request_with_retry
@@ -66,7 +75,7 @@ class TaskCache:
         self._path = path if path is not None else MEDIAKIT_CACHE_PATH
         self._ttl = ttl if ttl is not None else MEDIAKIT_CACHE_TTL
 
-    def _load(self) -> dict[str, dict]:
+    def _load(self) -> dict[str, dict[str, Any]]:
         try:
             with self._path.open() as f:
                 data = json.load(f)

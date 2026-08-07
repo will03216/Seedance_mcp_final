@@ -1,16 +1,14 @@
 """seedance status / watch / list / cancel — task management commands."""
 from __future__ import annotations
 
-import time
-
 import typer
 
 from seedance import SeedanceClient
 from seedance.exceptions import SeedanceError
 
+from ..commands.generate import _watch_task
 from ..console import console, err, info, ok, warn
 from ..formatters import tasks_table
-from ..commands.generate import _watch_task
 
 app = typer.Typer(help="Manage video generation tasks.")
 
@@ -26,7 +24,7 @@ def status(
         result = client.check_task(task_id)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     if result.succeeded:
@@ -86,7 +84,7 @@ def list_tasks(
         data = client.list_tasks(page, limit, status_filter, model_filter)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     tasks_table(data["tasks"])
@@ -111,6 +109,6 @@ def cancel(
         client.cancel_task(task_id)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     ok(f"Cancellation requested for [task_id]{task_id}[/task_id].")

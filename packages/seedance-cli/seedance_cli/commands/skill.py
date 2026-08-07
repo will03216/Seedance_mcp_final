@@ -156,7 +156,9 @@ def _check_mcp_installed() -> None:
         err("seedance-mcp is not installed.")
         info("Install it with:  pip install seedance-mcp")
         info("Or:               pip install 'seedance-cli[mcp]'")
-        raise typer.Exit(1)
+        # from None: the install instructions above are the actionable message;
+        # chaining the raw ImportError traceback adds noise, not information.
+        raise typer.Exit(1) from None
 
 
 def _load_json(path: Path) -> dict:

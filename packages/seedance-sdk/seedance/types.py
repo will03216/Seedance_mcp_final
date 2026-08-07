@@ -12,7 +12,7 @@ class TaskResult:
     task_id: str
     status: str
     video_url: str | None = None
-    error: dict | None = None
+    error: dict[str, Any] | None = None
     mode: str = ""
     model: str = ""
     # Properties of the finished video, present once the task succeeds.
@@ -22,7 +22,7 @@ class TaskResult:
     ratio: str | None = None
     resolution: str | None = None
     output_format: str | None = None
-    raw: dict = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"task_id": self.task_id, "status": self.status}
@@ -66,12 +66,12 @@ class GenerateResult:
     status: str
     mode: str
     model: str = ""
-    steps: list[dict] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
     # asset_id is the first uploaded asset, kept for backward compatibility;
     # asset_ids holds all of them when several reference images were uploaded.
     asset_id: str = ""
     asset_ids: list[str] = field(default_factory=list)
-    raw: dict = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -104,14 +104,14 @@ class UpscaleResult:
     task_id: str
     status: str
     video_url: str | None = None
-    error: dict | None = None
+    error: dict[str, Any] | None = None
     request_id: str = ""
     duration: float | None = None
     resolution: str | None = None
     fps: float | None = None
     tool_version: str | None = None
     idempotent_hit: bool = False
-    raw: dict = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"task_id": self.task_id, "status": self.status}
@@ -182,7 +182,7 @@ class AssetResult:
     asset_ref: str
     status: str
     error: str = ""
-    raw: dict = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {

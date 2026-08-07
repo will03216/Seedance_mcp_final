@@ -43,9 +43,9 @@ def upload(
             result = client.upload_asset(url, group, on_poll=on_poll)
         except SeedanceError as exc:
             err(str(exc))
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
 
-    ok(f"Asset ready  status=Active")
+    ok("Asset ready  status=Active")
     console.print(f"\n  asset_id:  [blue]{result.asset_id}[/blue]")
     console.print(f"  asset_ref: [cyan]{result.asset_ref}[/cyan]")
     console.print(
@@ -64,7 +64,7 @@ def asset_status(
         result = client.get_asset(asset_id)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     console.print()
     if result.active:
@@ -96,9 +96,9 @@ def group_create(
         result = client.create_asset_group(name, description)
     except SeedanceError as exc:
         err(str(exc))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
-    ok(f"Asset group created")
+    ok("Asset group created")
     console.print(f"\n  group_id: [blue]{result.group_id}[/blue]")
     console.print(
         f"\n  Pass to uploads:  [cyan]seedance asset upload <url> --group {result.group_id}[/cyan]\n"
