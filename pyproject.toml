@@ -1,3 +1,15 @@
+# Dev tooling lives in a PEP 735 dependency group, not in each package's
+# [project.optional-dependencies]. `uv sync --dev` (what CI runs) installs
+# dependency groups; it does NOT install extras, so declaring these as extras
+# left ruff/mypy/pytest missing in CI.
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-httpserver>=1.0.0",
+    "mypy>=1.8.0",
+    "ruff>=0.3.0",
+]
+
 [tool.uv.workspace]
 members = [
     "packages/seedance-sdk",

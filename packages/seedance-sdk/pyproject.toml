@@ -19,14 +19,6 @@ classifiers = [
 # Zero runtime dependencies — uses stdlib urllib only
 dependencies = []
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0.0",
-    "pytest-httpserver>=1.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-]
-
 [project.urls]
 Repository = "https://github.com/byteplus/byteplus-seedance"
 Documentation = "https://docs.byteplus.com/en/docs/ModelArk/2291680"

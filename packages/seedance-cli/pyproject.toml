@@ -17,11 +17,6 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = ["seedance-mcp>=2.1.0"]   # install CLI + MCP server together
-dev = [
-    "pytest>=8.0.0",
-    "mypy>=1.8.0",
-    "ruff>=0.3.0",
-]
 
 [project.scripts]
 seedance = "seedance_cli.main:app"
