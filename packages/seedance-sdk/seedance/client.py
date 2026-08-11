@@ -10,14 +10,22 @@ from .config import (
     BASE_URL,
     DEFAULT_MODEL,
     DURATION_AUTO,
+    EXECUTION_EXPIRES_RANGE,
     FAST_MODEL,
+    FRAMES_BASE,
+    FRAMES_RANGE,
+    FRAMES_STEP,
     INCLUDE_RAW,
     LEGACY_MODEL,
     MODELS,
+    OMNI_TASK_TYPES,
     OUTPUT_FORMATS,
     PAGE_SIZE_MAX,
     POLL_TIMEOUT,
+    PRIORITY_RANGE,
     RATIO_AUTO,
+    SAFETY_IDENTIFIER_MAXLEN,
+    SERVICE_TIERS,
     SUBMIT_TIMEOUT,
     TASK_TYPE_AUTO,
     TASK_TYPE_EDIT,
@@ -34,6 +42,7 @@ from .config import (
     is_seedance_25,
     model_caps,
     resolve_model,
+    valid_frames,
 )
 from .credentials import load_api_key, load_asset_credentials, load_mediakit_api_key
 from .exceptions import ValidationError
@@ -177,6 +186,32 @@ class SeedanceClient:
         if first_frame_url or last_frame_url:
             return TASK_TYPE_FIRST_FRAME
         return task_type
+
+    @staticmethod
+    def _omni_task_type(
+        task_type: str,
+        *,
+        model: str,
+        has_omni_refs: bool,
+    ) -> str:
+        """Value to send as omni_reference_task_type, or "" to omit it.
+
+        Only meaningful for Seedance 2.5 omni-reference tasks (content.role of
+        reference_image / reference_video / reference_audio). It does not apply
+        to first-frame tasks, which are a separate task family classified by role
+        rather than by prompt, nor to plain text-to-video.
+
+        Declaring it moves validation to submit time: the API rejects a violating
+        request synchronously and does NOT create the task, so nothing is billed.
+        Leaving it at "auto" is the same as omitting it, so we omit.
+        """
+        if not has_omni_refs:
+            return ""
+        if not model_caps(model).get("supports_omni_task_type", False):
+            return ""
+        if task_type in (TASK_TYPE_REFERENCE, TASK_TYPE_EDIT, TASK_TYPE_EXTEND):
+            return task_type
+        return ""
 
     @staticmethod
     def _resolve_ratio(
@@ -365,7 +400,11 @@ class SeedanceClient:
                 )
 
         if camerafixed and not caps.get("supports_camerafixed", False):
-            raise ValidationError(f"camerafixed is not supported by {model}.")
+            raise ValidationError(
+                f"camera_fixed is not supported by {model}. The API documents it for "
+                "Dreamina Seedance 1.5 pro and 1.0 pro only. Express a locked camera "
+                "in the prompt instead (e.g. 'locked-off shot, no camera movement')."
+            )
 
     # ------------------------------------------------------------------
     # Payload builders
@@ -458,14 +497,111 @@ class SeedanceClient:
         seed: int | None,
         camerafixed: bool,
         output_format: str = "",
+        *,
+        model: str = DEFAULT_MODEL,
+        omni_task_type: str = "",
+        priority: int | None = None,
+        callback_url: str = "",
+        return_last_frame: bool = False,
+        execution_expires_after: int | None = None,
+        safety_identifier: str = "",
+        frames: int | None = None,
+        service_tier: str = "",
     ) -> dict[str, Any]:
+        """Build the optional half of the payload, validating as we go.
+
+        Every value is omitted when unset so the API's own defaults apply.
+        """
+        caps = model_caps(model)
         params: dict[str, Any] = {}
+
         if seed is not None:
             params["seed"] = seed
+
         if camerafixed:
-            params["camerafixed"] = True
+            # The payload key is `camera_fixed`; we previously sent `camerafixed`,
+            # which the API silently ignored as an unknown field.
+            if not caps.get("supports_camerafixed", False):
+                raise ValidationError(
+                    f"camera_fixed is not supported by {model}. The API documents it for "
+                    "Dreamina Seedance 1.5 pro and 1.0 pro only. Express a locked camera "
+                    "in the prompt instead (e.g. 'locked-off shot, no camera movement')."
+                )
+            params["camera_fixed"] = True
+
         if output_format:
             params["output_format"] = output_format
+
+        if omni_task_type and omni_task_type != TASK_TYPE_AUTO:
+            if omni_task_type not in OMNI_TASK_TYPES:
+                raise ValidationError(
+                    f"Invalid omni_reference_task_type {omni_task_type!r}. "
+                    f"Must be one of: {', '.join(sorted(OMNI_TASK_TYPES))}"
+                )
+            params["omni_reference_task_type"] = omni_task_type
+
+        if priority is not None:
+            lo, hi = PRIORITY_RANGE
+            if not caps.get("supports_priority", False):
+                raise ValidationError(f"priority is not supported by {model}.")
+            if not lo <= priority <= hi:
+                raise ValidationError(f"Invalid priority {priority}. Must be {lo}–{hi}.")
+            params["priority"] = priority
+
+        if callback_url:
+            if not callback_url.startswith(("http://", "https://")):
+                raise ValidationError(
+                    f"callback_url must be an http(s) URL — got {callback_url!r}."
+                )
+            params["callback_url"] = callback_url
+
+        if return_last_frame:
+            if not caps.get("supports_return_last_frame", False):
+                raise ValidationError(f"return_last_frame is not supported by {model}.")
+            params["return_last_frame"] = True
+
+        if execution_expires_after is not None:
+            lo, hi = EXECUTION_EXPIRES_RANGE
+            if not lo <= execution_expires_after <= hi:
+                raise ValidationError(
+                    f"Invalid execution_expires_after {execution_expires_after}. "
+                    f"Must be {lo}–{hi} seconds ({lo // 3600}h–{hi // 3600}h)."
+                )
+            params["execution_expires_after"] = execution_expires_after
+
+        if safety_identifier:
+            if len(safety_identifier) > SAFETY_IDENTIFIER_MAXLEN:
+                raise ValidationError(
+                    f"safety_identifier is {len(safety_identifier)} characters; "
+                    f"the maximum is {SAFETY_IDENTIFIER_MAXLEN}."
+                )
+            params["safety_identifier"] = safety_identifier
+
+        if frames is not None:
+            if not caps.get("supports_frames", False):
+                raise ValidationError(
+                    f"frames is not supported by {model}. Use duration instead."
+                )
+            if not valid_frames(frames):
+                lo, hi = FRAMES_RANGE
+                raise ValidationError(
+                    f"Invalid frames {frames}. Must be {lo}–{hi} and of the form "
+                    f"{FRAMES_BASE} + {FRAMES_STEP}n (29, 33, 37, … 289)."
+                )
+            params["frames"] = frames
+
+        if service_tier:
+            if service_tier not in SERVICE_TIERS:
+                raise ValidationError(
+                    f"Invalid service_tier {service_tier!r}. "
+                    f"Must be one of: {', '.join(sorted(SERVICE_TIERS))}"
+                )
+            if service_tier == "flex" and not caps.get("supports_service_tier_flex", False):
+                raise ValidationError(
+                    f"service_tier='flex' is not supported by {model}."
+                )
+            params["service_tier"] = service_tier
+
         return params
 
     # ------------------------------------------------------------------
@@ -485,6 +621,13 @@ class SeedanceClient:
         output_format: str = "",
         seed: int | None = None,
         camerafixed: bool = False,
+        priority: int | None = None,
+        callback_url: str = "",
+        return_last_frame: bool = False,
+        execution_expires_after: int | None = None,
+        safety_identifier: str = "",
+        frames: int | None = None,
+        service_tier: str = "",
     ) -> TaskResult:
         """Submit a text-to-video job. Returns immediately with task_id.
 
@@ -496,6 +639,7 @@ class SeedanceClient:
         """
         cid = self._cid()
         model = self._pick_model(model, fast_mode)
+        omni_task_type = ""  # text-to-video carries no reference_* roles
         ratio = self._resolve_ratio(ratio, TASK_TYPE_REFERENCE, model)
         self._validate(
             ratio, duration, resolution, model,
@@ -512,7 +656,18 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed, output_format),
+            **self._extra_params(
+                seed, camerafixed, output_format,
+                model=model,
+                omni_task_type=omni_task_type,
+                priority=priority,
+                callback_url=callback_url,
+                return_last_frame=return_last_frame,
+                execution_expires_after=execution_expires_after,
+                safety_identifier=safety_identifier,
+                frames=frames,
+                service_tier=service_tier,
+            ),
         }
         logger.info(
             "[%s] T2V | model=%s ratio=%s dur=%ss res=%s", cid, model, ratio, duration, resolution
@@ -551,6 +706,13 @@ class SeedanceClient:
         task_type: str = TASK_TYPE_AUTO,
         seed: int | None = None,
         camerafixed: bool = False,
+        priority: int | None = None,
+        callback_url: str = "",
+        return_last_frame: bool = False,
+        execution_expires_after: int | None = None,
+        safety_identifier: str = "",
+        frames: int | None = None,
+        service_tier: str = "",
     ) -> TaskResult:
         """Submit a reference-to-video job (image / video / audio references).
 
@@ -591,12 +753,18 @@ class SeedanceClient:
             task_type, first_frame_url=first_frame_url, last_frame_url=last_frame_url
         )
         has_video_refs = bool(video_urls)
+        # reference_image / reference_video / reference_audio are the omni roles;
+        # first_frame / last_frame are a different task family.
+        has_omni_refs = bool(image_urls or video_urls or audio_urls)
         if declared_task_type == TASK_TYPE_AUTO:
             self._guard_inferred_task_type(
                 prompt, model=model, ratio=ratio, duration=duration,
                 has_video_refs=has_video_refs,
             )
         ratio = self._resolve_ratio(ratio, task_type, model, has_video_refs=has_video_refs)
+        omni_task_type = self._omni_task_type(
+            task_type, model=model, has_omni_refs=has_omni_refs,
+        )
         self._validate(
             ratio, duration, resolution, model,
             task_type=task_type,
@@ -632,7 +800,18 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed, output_format),
+            **self._extra_params(
+                seed, camerafixed, output_format,
+                model=model,
+                omni_task_type=omni_task_type,
+                priority=priority,
+                callback_url=callback_url,
+                return_last_frame=return_last_frame,
+                execution_expires_after=execution_expires_after,
+                safety_identifier=safety_identifier,
+                frames=frames,
+                service_tier=service_tier,
+            ),
         }
         logger.info(
             "[%s] I2V | model=%s mode=%s ratio=%s dur=%ss res=%s",
@@ -673,6 +852,13 @@ class SeedanceClient:
         task_type: str = TASK_TYPE_AUTO,
         seed: int | None = None,
         camerafixed: bool = False,
+        priority: int | None = None,
+        callback_url: str = "",
+        return_last_frame: bool = False,
+        execution_expires_after: int | None = None,
+        safety_identifier: str = "",
+        frames: int | None = None,
+        service_tier: str = "",
         asset_group_id: str = "",
         on_progress: Any = None,   # optional callback(step, detail) for CLI progress reporting
     ) -> GenerateResult:
@@ -715,7 +901,11 @@ class SeedanceClient:
                 prompt, model=model, ratio=ratio, duration=duration,
                 has_video_refs=has_video_refs,
             )
+        has_omni_refs = bool(all_image_urls or video_urls or audio_urls)
         ratio = self._resolve_ratio(ratio, task_type, model, has_video_refs=has_video_refs)
+        omni_task_type = self._omni_task_type(
+            task_type, model=model, has_omni_refs=has_omni_refs,
+        )
         self._validate(
             ratio, duration, resolution, model,
             task_type=task_type,
@@ -800,7 +990,18 @@ class SeedanceClient:
             "resolution": resolution,
             "generate_audio": generate_audio,
             "watermark": False,
-            **self._extra_params(seed, camerafixed, output_format),
+            **self._extra_params(
+                seed, camerafixed, output_format,
+                model=model,
+                omni_task_type=omni_task_type,
+                priority=priority,
+                callback_url=callback_url,
+                return_last_frame=return_last_frame,
+                execution_expires_after=execution_expires_after,
+                safety_identifier=safety_identifier,
+                frames=frames,
+                service_tier=service_tier,
+            ),
         }
 
         logger.info(
@@ -959,17 +1160,35 @@ class SeedanceClient:
             correlation_id=cid,
         )
         status = resp.get("status", "unknown")
-        duration = extract_output_field(resp, "duration")
+
+        def _int(field: str) -> int | None:
+            v = extract_output_field(resp, field)
+            return int(v) if isinstance(v, (int, float)) else None
+
+        _usage = resp.get("usage")
+        usage: dict[str, Any] = _usage if isinstance(_usage, dict) else {}
+        fps = extract_output_field(resp, "framespersecond")
+        last_frame = extract_output_field(resp, "last_frame_url")
         return TaskResult(
             task_id=task_id,
             status=status,
             video_url=extract_video_url(resp),
             error=resp.get("error") if status in TERMINAL_STATUSES else None,
             model=str(resp.get("model") or ""),
-            duration=int(duration) if isinstance(duration, (int, float)) else None,
+            duration=_int("duration"),
             ratio=extract_output_field(resp, "ratio"),
             resolution=extract_output_field(resp, "resolution"),
             output_format=extract_output_field(resp, "output_format"),
+            last_frame_url=str(last_frame) if last_frame else None,
+            frames=_int("frames"),
+            fps=float(fps) if isinstance(fps, (int, float)) else None,
+            seed=_int("seed"),
+            priority=_int("priority"),
+            service_tier=extract_output_field(resp, "service_tier"),
+            created_at=_int("created_at"),
+            updated_at=_int("updated_at"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
             raw=resp,
         )
 

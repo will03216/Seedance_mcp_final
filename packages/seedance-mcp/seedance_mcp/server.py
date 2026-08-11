@@ -108,6 +108,10 @@ def seedance_text_to_video(
     output_format: str = "",
     seed: int | None = None,
     camerafixed: bool = False,
+    priority: int = 0,
+    callback_url: str = "",
+    return_last_frame: bool = False,
+    safety_identifier: str = "",
 ) -> dict:
     """Submit a text-to-video generation job on Seedance.
 
@@ -143,6 +147,10 @@ def seedance_text_to_video(
             output_format=output_format,
             seed=seed,
             camerafixed=camerafixed,
+            priority=priority or None,
+            callback_url=callback_url,
+            return_last_frame=return_last_frame,
+            safety_identifier=safety_identifier,
         )
     except SeedanceError as exc:
         return _err(exc)
@@ -171,8 +179,13 @@ def seedance_image_to_video(
     fast_mode: bool = False,
     model: str = "",
     output_format: str = "",
+    task_type: str = "auto",
     seed: int | None = None,
     camerafixed: bool = False,
+    priority: int = 0,
+    callback_url: str = "",
+    return_last_frame: bool = False,
+    safety_identifier: str = "",
 ) -> dict:
     """Submit a reference-to-video generation job on Seedance.
 
@@ -233,8 +246,13 @@ def seedance_image_to_video(
             fast_mode=fast_mode,
             model=model,
             output_format=output_format,
+            task_type=task_type,
             seed=seed,
             camerafixed=camerafixed,
+            priority=priority or None,
+            callback_url=callback_url,
+            return_last_frame=return_last_frame,
+            safety_identifier=safety_identifier,
         )
     except SeedanceError as exc:
         return _err(exc)
@@ -264,8 +282,13 @@ def seedance_generate(
     fast_mode: bool = False,
     model: str = "",
     output_format: str = "",
+    task_type: str = "auto",
     seed: int | None = None,
     camerafixed: bool = False,
+    priority: int = 0,
+    callback_url: str = "",
+    return_last_frame: bool = False,
+    safety_identifier: str = "",
     asset_group_id: str = "",
 ) -> dict:
     """High-level tool: generate a Seedance video with automatic asset-library upload.
@@ -322,8 +345,13 @@ def seedance_generate(
             fast_mode=fast_mode,
             model=model,
             output_format=output_format,
+            task_type=task_type,
             seed=seed,
             camerafixed=camerafixed,
+            priority=priority or None,
+            callback_url=callback_url,
+            return_last_frame=return_last_frame,
+            safety_identifier=safety_identifier,
             asset_group_id=asset_group_id,
         )
     except SeedanceError as exc:

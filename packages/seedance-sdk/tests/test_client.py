@@ -694,3 +694,234 @@ def test_list_tasks_accepts_model_filter(client):
         client.list_tasks(model_filter="2.5")
     url = mock.call_args.args[0] if mock.call_args.args else mock.call_args.kwargs["url"]
     assert "filter.model=dreamina-seedance-2-5-260628" in url
+
+
+# ---------------------------------------------------------------------------
+# API parity: terminal statuses
+# ---------------------------------------------------------------------------
+
+def test_expired_is_terminal(client):
+    # A task that outlives execution_expires_after is killed and marked expired.
+    # Treating it as non-terminal makes watchers poll forever.
+    with _mock_http({"status": "expired", "error": {"code": "TaskExpired"}}):
+        result = client.check_task("t-exp")
+    assert result.terminal
+    assert result.expired
+    assert not result.succeeded
+    assert result.error is not None, "error must surface on a terminal status"
+
+
+def test_running_is_not_terminal(client):
+    with _mock_http({"status": "running"}):
+        assert not client.check_task("t").terminal
+
+
+# ---------------------------------------------------------------------------
+# API parity: camera_fixed
+# ---------------------------------------------------------------------------
+
+def test_camerafixed_rejected_on_25(client):
+    # Documented for Seedance 1.5 pro / 1.0 pro only.
+    with pytest.raises(ValidationError, match="1.5 pro"):
+        client.submit_text_to_video("test", camerafixed=True)
+
+
+def test_camerafixed_rejected_on_20(client):
+    with pytest.raises(ValidationError, match="not supported"):
+        client.submit_text_to_video("test", model="2.0", camerafixed=True)
+
+
+def test_camerafixed_omitted_when_false(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test")
+    payload = _payload_of(mock)
+    assert "camera_fixed" not in payload and "camerafixed" not in payload
+
+
+# ---------------------------------------------------------------------------
+# API parity: omni_reference_task_type
+# ---------------------------------------------------------------------------
+
+def test_omni_task_type_sent_for_edit(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_video_edit("Remove the crowd from @Video1.", ["https://e/v.mov"])
+    assert _payload_of(mock)["omni_reference_task_type"] == "edit"
+
+
+def test_omni_task_type_sent_for_extend(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_video_extend("Extend @Video1.", ["https://e/v.mov"], duration=11)
+    assert _payload_of(mock)["omni_reference_task_type"] == "extend"
+
+
+def test_omni_task_type_sent_when_declared_reference(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Rhythm follows @Video1.", video_urls=["https://e/v.mov"],
+            task_type="reference", ratio="16:9",
+        )
+    assert _payload_of(mock)["omni_reference_task_type"] == "reference"
+
+
+def test_omni_task_type_omitted_when_auto(client):
+    # "auto" is the API default; omitting it is equivalent and keeps payloads lean.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video("A dancer.", video_urls=["https://e/v.mov"])
+    assert "omni_reference_task_type" not in _payload_of(mock)
+
+
+def test_omni_task_type_omitted_for_first_frame(client):
+    # First-frame is a separate task family, classified by content.role.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video("She turns.", first_frame_url="https://e/f.jpg")
+    assert "omni_reference_task_type" not in _payload_of(mock)
+
+
+def test_omni_task_type_omitted_for_text_to_video(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("A city at dusk.")
+    assert "omni_reference_task_type" not in _payload_of(mock)
+
+
+def test_omni_task_type_omitted_on_seedance_20(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_image_to_video(
+            "Remove the crowd.", model="2.0", video_urls=["https://e/v.mp4"],
+            task_type="edit", ratio="adaptive", duration=-1,
+        )
+    assert "omni_reference_task_type" not in _payload_of(mock)
+
+
+# ---------------------------------------------------------------------------
+# API parity: newly supported request parameters
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", [0, 5, 9])
+def test_priority_accepted_in_range(client, value):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", priority=value)
+    assert _payload_of(mock)["priority"] == value
+
+
+@pytest.mark.parametrize("value", [-1, 10, 99])
+def test_priority_rejected_out_of_range(client, value):
+    with pytest.raises(ValidationError, match="Invalid priority"):
+        client.submit_text_to_video("test", priority=value)
+
+
+def test_callback_url_sent(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", callback_url="https://cb.example.com/hook")
+    assert _payload_of(mock)["callback_url"] == "https://cb.example.com/hook"
+
+
+def test_non_http_callback_url_rejected(client):
+    with pytest.raises(ValidationError, match="http\\(s\\) URL"):
+        client.submit_text_to_video("test", callback_url="ftp://example.com")
+
+
+def test_return_last_frame_sent(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", return_last_frame=True)
+    assert _payload_of(mock)["return_last_frame"] is True
+
+
+@pytest.mark.parametrize("value", [3600, 172800, 259200])
+def test_execution_expires_after_accepted(client, value):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", execution_expires_after=value)
+    assert _payload_of(mock)["execution_expires_after"] == value
+
+
+@pytest.mark.parametrize("value", [3599, 259201])
+def test_execution_expires_after_rejected(client, value):
+    with pytest.raises(ValidationError, match="execution_expires_after"):
+        client.submit_text_to_video("test", execution_expires_after=value)
+
+
+def test_safety_identifier_sent(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", safety_identifier="u_abc123")
+    assert _payload_of(mock)["safety_identifier"] == "u_abc123"
+
+
+def test_over_long_safety_identifier_rejected(client):
+    with pytest.raises(ValidationError, match="maximum is 64"):
+        client.submit_text_to_video("test", safety_identifier="x" * 65)
+
+
+def test_frames_rejected_on_25(client):
+    # frames is documented as unsupported on the 2.5 and 2.0 series.
+    with pytest.raises(ValidationError, match="frames is not supported"):
+        client.submit_text_to_video("test", frames=33)
+
+
+def test_service_tier_default_accepted(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test", service_tier="default")
+    assert _payload_of(mock)["service_tier"] == "default"
+
+
+def test_service_tier_flex_rejected_on_25(client):
+    with pytest.raises(ValidationError, match="flex"):
+        client.submit_text_to_video("test", service_tier="flex")
+
+
+def test_invalid_service_tier_rejected(client):
+    with pytest.raises(ValidationError, match="Invalid service_tier"):
+        client.submit_text_to_video("test", service_tier="turbo")
+
+
+def test_optional_params_omitted_by_default(client):
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_text_to_video("test")
+    payload = _payload_of(mock)
+    for key in ("priority", "callback_url", "return_last_frame",
+                "execution_expires_after", "safety_identifier", "frames",
+                "service_tier", "omni_reference_task_type"):
+        assert key not in payload, f"{key} should be omitted so the API default applies"
+
+
+# ---------------------------------------------------------------------------
+# API parity: newly parsed response fields
+# ---------------------------------------------------------------------------
+
+def test_check_task_parses_full_response(client):
+    with _mock_http({
+        "status": "succeeded",
+        "model": "dreamina-seedance-2-5-260628",
+        "created_at": 1700000000,
+        "updated_at": 1700000123,
+        "priority": 5,
+        "service_tier": "default",
+        "seed": 42,
+        "usage": {"completion_tokens": 12345, "total_tokens": 12400},
+        "content": {
+            "video_url": "https://cdn/v.mov",
+            "last_frame_url": "https://cdn/last.png",
+            "duration": 5,
+            "frames": 133,
+            "framespersecond": 24,
+            "ratio": "269:215",
+            "resolution": "720p",
+            "output_format": "mov",
+        },
+    }):
+        r = client.check_task("t")
+    assert r.last_frame_url == "https://cdn/last.png"
+    assert r.frames == 133
+    assert r.fps == 24
+    assert r.seed == 42
+    assert r.priority == 5
+    assert r.service_tier == "default"
+    assert r.created_at == 1700000000 and r.updated_at == 1700000123
+    assert r.completion_tokens == 12345 and r.total_tokens == 12400
+    d = r.to_dict()
+    assert d["last_frame_url"] == "https://cdn/last.png" and d["frames"] == 133
+
+
+def test_missing_optional_response_fields_stay_none(client):
+    with _mock_http({"status": "running"}):
+        r = client.check_task("t")
+    assert r.last_frame_url is None and r.frames is None and r.total_tokens is None
+    assert "frames" not in r.to_dict()

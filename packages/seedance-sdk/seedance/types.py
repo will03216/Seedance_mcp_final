@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .config import MEDIAKIT_TERMINAL_STATUSES
+from .config import MEDIAKIT_TERMINAL_STATUSES, TERMINAL_STATUSES
 
 
 @dataclass
@@ -22,6 +22,20 @@ class TaskResult:
     ratio: str | None = None
     resolution: str | None = None
     output_format: str | None = None
+    # PNG of the final frame, present only when return_last_frame was set.
+    # Chain it as the first_frame_url of the next clip for continuous sequences.
+    last_frame_url: str | None = None
+    # `frames` is the exact frame count; `duration` is frames // 24 rounded down,
+    # so frames is the precise figure when the output has fractional seconds.
+    frames: int | None = None
+    fps: float | None = None
+    seed: int | None = None
+    priority: int | None = None
+    service_tier: str | None = None
+    created_at: int | None = None
+    updated_at: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
     # Non-fatal advisory raised at submission — e.g. an edit prompt with no
     # trigger word, which Seedance will silently treat as a new generation.
     warning: str = ""
@@ -45,6 +59,13 @@ class TaskResult:
             out["resolution"] = self.resolution
         if self.output_format:
             out["output_format"] = self.output_format
+        if self.last_frame_url:
+            out["last_frame_url"] = self.last_frame_url
+        for name in ("frames", "fps", "seed", "priority", "service_tier",
+                     "created_at", "updated_at", "completion_tokens", "total_tokens"):
+            value = getattr(self, name)
+            if value is not None:
+                out[name] = value
         if self.warning:
             out["warning"] = self.warning
         return out
@@ -55,7 +76,12 @@ class TaskResult:
 
     @property
     def terminal(self) -> bool:
-        return self.status in {"succeeded", "failed", "cancelled"}
+        return self.status in TERMINAL_STATUSES
+
+    @property
+    def expired(self) -> bool:
+        """True when the task outlived execution_expires_after and was killed."""
+        return self.status == "expired"
 
     @property
     def task_type_constraint_error(self) -> bool:

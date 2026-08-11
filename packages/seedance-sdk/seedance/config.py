@@ -22,7 +22,12 @@ POLL_TIMEOUT = int(os.getenv("SEEDANCE_POLL_TIMEOUT", "15"))
 MAX_RETRIES = int(os.getenv("SEEDANCE_MAX_RETRIES", "3"))
 INCLUDE_RAW = os.getenv("SEEDANCE_DEBUG_RAW", "").lower() in ("1", "true", "yes")
 
-TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
+# A task that outlives execution_expires_after is terminated and marked "expired".
+# Omitting it here means watchers never stop polling. "cancelled" is kept because the
+# cancel endpoint exists, even though the status reference does not name it.
+TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {"succeeded", "failed", "cancelled", "expired"}
+)
 PAGE_SIZE_MAX = 50
 
 # Multi-reference (all-round reference) budgets for Seedance 2.0.
@@ -55,6 +60,31 @@ TASK_TYPES: frozenset[str] = frozenset({
 })
 
 OUTPUT_FORMATS: frozenset[str] = frozenset({"mp4", "mov"})
+SERVICE_TIERS: frozenset[str] = frozenset({"default", "flex"})
+
+# Values accepted by omni_reference_task_type. Seedance 2.5 classifies an
+# omni-reference request into one of these three subtasks by reading the prompt;
+# declaring it up front moves validation to submit time, so a violation returns
+# synchronously AND no task is created (nothing billed) instead of failing
+# asynchronously minutes later.
+OMNI_TASK_TYPES: frozenset[str] = frozenset({"auto", "reference", "edit", "extend"})
+
+PRIORITY_RANGE = (0, 9)
+EXECUTION_EXPIRES_RANGE = (3600, 259200)   # 1h to 72h; API default 172800 (48h)
+SAFETY_IDENTIFIER_MAXLEN = 64
+
+# frames overrides duration and allows fractional-second output. Valid values are
+# 25 + 4n for positive integer n, i.e. 29, 33, 37 ... 289. Frame rate is 24.
+FRAMES_RANGE = (29, 289)
+FRAMES_STEP = 4
+FRAMES_BASE = 25
+FRAME_RATE = 24
+
+
+def valid_frames(frames: int) -> bool:
+    """True when `frames` matches the documented 25 + 4n family within range."""
+    lo, hi = FRAMES_RANGE
+    return lo <= frames <= hi and (frames - FRAMES_BASE) % FRAMES_STEP == 0
 
 # ---------------------------------------------------------------------------
 # Task-intent detection
@@ -134,7 +164,12 @@ MODELS: dict[str, dict[str, Any]] = {
         "duration_range": [4, 30],
         "supports_first_frame": True,
         "supports_last_frame": True,
-        "supports_camerafixed": True,
+        "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
+        "supports_priority": True,
+        "supports_service_tier_flex": False,
+        "supports_frames": False,
+        "supports_omni_task_type": True,
+        "supports_return_last_frame": True,
         "supports_seed": True,
         "supports_duration_auto": True,
         "supports_output_format": True,
@@ -163,7 +198,12 @@ MODELS: dict[str, dict[str, Any]] = {
         "duration_range": [4, 15],
         "supports_first_frame": True,
         "supports_last_frame": False,
-        "supports_camerafixed": True,
+        "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
+        "supports_priority": True,
+        "supports_service_tier_flex": False,
+        "supports_frames": False,
+        "supports_omni_task_type": False,
+        "supports_return_last_frame": True,
         "supports_seed": True,
         "supports_duration_auto": True,
         "supports_output_format": False,
@@ -184,7 +224,12 @@ MODELS: dict[str, dict[str, Any]] = {
         "duration_range": [4, 15],
         "supports_first_frame": True,
         "supports_last_frame": False,
-        "supports_camerafixed": True,
+        "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
+        "supports_priority": True,
+        "supports_service_tier_flex": False,
+        "supports_frames": False,
+        "supports_omni_task_type": False,
+        "supports_return_last_frame": True,
         "supports_seed": True,
         "supports_duration_auto": True,
         "supports_output_format": False,
