@@ -927,14 +927,19 @@ def test_missing_optional_response_fields_stay_none(client):
     assert "frames" not in r.to_dict()
 
 
-def test_video_edit_requires_exactly_one_reference_video(client):
-    # Verified live: the API returns "must include exactly one reference video
-    # to be edited", which is stricter than the prose docs' "at least one".
-    with pytest.raises(ValidationError, match="exactly one reference video"):
+def test_video_edit_accepts_multiple_reference_videos(client):
+    # Verified live (cgt-20260812020825-clk9t): a declared edit carrying two
+    # reference videos is accepted and succeeds. Sending ZERO is rejected with
+    # "must include exactly one reference video to be edited", but that phrase
+    # describes the semantic — the model edits one video, selected from the
+    # inputs — not a cap on the array.
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
         client.submit_video_edit(
-            "Video edit: remove the crowd.",
+            "Video edit: remove the crowd from @Video1.",
             ["https://e/a.mov", "https://e/b.mov"],
         )
+    vids = [c for c in _payload_of(mock)["content"] if c["type"] == "video_url"]
+    assert len(vids) == 2
 
 
 def test_video_extend_still_accepts_multiple_reference_videos(client):

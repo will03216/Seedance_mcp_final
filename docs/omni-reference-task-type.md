@@ -56,6 +56,12 @@ curl -X POST "$ARK_URL" \
 > With `auto`, use `ratio: "adaptive"` when reference videos are present. It is the only value
 > legal under all three subtasks, so it cannot clash with whatever the model decides. Sending a
 > concrete ratio here is what produces the asynchronous failure shown at the end of this document.
+>
+> The tutorial also says `duration` "must be `-1`" under `auto`. That is **advisory, not enforced**:
+> verified live, `auto` with `duration: 8` was accepted and succeeded (`cgt-20260812020652-f4mzd`,
+> 8s · `16:9`). The rule is a safe recipe — `-1` cannot clash with any subtask — but a concrete
+> duration is fine as long as the model classifies the request as `reference`, where duration is
+> free. It only bites if the prompt reads as an edit.
 
 ---
 
@@ -254,8 +260,11 @@ task type video editing. For this task type, the request must include exactly on
 video to be edited.
 ```
 
-> Note "**exactly one**". The prose documentation says "at least one". Treat one video per edit
-> as the safe assumption until confirmed otherwise.
+> The phrase "**exactly one**" describes the *semantic*, not a cap on the array: the model edits
+> one video, which it **selects from the inputs**. Verified live — a declared edit carrying two
+> reference videos was accepted and succeeded (`cgt-20260812020825-clk9t`, 5s · `269:215`). Zero
+> videos is what fails. Name the target in the prompt (`@Video1`) so the model picks the one you
+> mean.
 
 ### An invalid value
 

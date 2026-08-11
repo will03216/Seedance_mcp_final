@@ -89,6 +89,12 @@ CASES: list[tuple[str, str, str, object]] = [
      "Ratio AND duration locked to the source clip; neither is settable.",
      lambda: c.submit_video_edit("Video edit: remove the crowd in @Video1.", [VID])),
 
+    ("Task types", "Video edit — several source videos",
+     "Verified live: an edit may carry multiple reference videos; the model selects "
+     "the target named in the prompt.",
+     lambda: c.submit_video_edit(
+         "Video edit: remove the crowd from @Video1.", [VID, "https://example.com/b.mov"])),
+
     ("Task types", "Video extension — explicit duration",
      "Ratio locked; duration is yours.",
      lambda: c.submit_video_extend("Extend @Video1 forward.", [VID], duration=11)),
@@ -209,9 +215,6 @@ REJECTS: list[tuple[str, str, object]] = [
     ("last_frame_url without first_frame_url",
      "The API has no last-frame-only mode.",
      lambda: c.submit_image_to_video("test", last_frame_url=LF)),
-    ("Two reference videos on an edit",
-     "Verified live: the API requires exactly one video per edit.",
-     lambda: c.submit_video_edit("Video edit: remove the crowd.", [VID, "https://example.com/b.mov"])),
 ]
 
 L: list[str] = []
