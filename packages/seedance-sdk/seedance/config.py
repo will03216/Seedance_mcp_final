@@ -166,7 +166,7 @@ MODELS: dict[str, dict[str, Any]] = {
         "supports_last_frame": True,
         "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
         "supports_priority": True,
-        "supports_service_tier_flex": False,
+        "supports_service_tier": False,   # API: "must be empty" on 2.5 and 2.0
         "supports_frames": False,
         "supports_omni_task_type": True,
         "supports_return_last_frame": True,
@@ -200,7 +200,7 @@ MODELS: dict[str, dict[str, Any]] = {
         "supports_last_frame": False,
         "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
         "supports_priority": True,
-        "supports_service_tier_flex": False,
+        "supports_service_tier": False,   # API: "must be empty" on 2.5 and 2.0
         "supports_frames": False,
         "supports_omni_task_type": False,
         "supports_return_last_frame": True,
@@ -226,7 +226,7 @@ MODELS: dict[str, dict[str, Any]] = {
         "supports_last_frame": False,
         "supports_camerafixed": False,   # docs: Seedance 1.5 pro / 1.0 pro only
         "supports_priority": True,
-        "supports_service_tier_flex": False,
+        "supports_service_tier": False,   # API: "must be empty" on 2.5 and 2.0
         "supports_frames": False,
         "supports_omni_task_type": False,
         "supports_return_last_frame": True,

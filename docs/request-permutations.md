@@ -9,6 +9,11 @@ Endpoint: `POST https://ark.ap-southeast.bytepluses.com/api/v3/contents/generati
 Only non-default values are sent — every optional parameter is omitted unless set, so the
 API's own defaults apply.
 
+Covers all five Seedance task types. For a deeper treatment of the three that are classified
+from the prompt — reference-to-video, video editing, video extension — including runnable curl
+and the `omni_reference_task_type` parameter that moves their validation to submit time, see
+[`omni-reference-task-type.md`](omni-reference-task-type.md).
+
 ## Model capabilities
 
 | | Seedance 2.5 | Seedance 2.0 Standard | Seedance 2.0 Fast |
@@ -23,7 +28,7 @@ API's own defaults apply.
 | **return_last_frame** | yes | yes | yes |
 | **camera_fixed** | no | no | no |
 | **frames** | no | no | no |
-| **service_tier=flex** | no | no | no |
+| **service_tier** | no | no | no |
 
 ## Task types
 
@@ -536,32 +541,6 @@ Opaque end-user identifier, max 64 chars.
 
 Optional keys sent: `safety_identifier`
 
-### service_tier
-
-`default` only on 2.5/2.0; `flex` is rejected.
-
-`content[]` roles: text only
-
-```json
-{
-  "model": "dreamina-seedance-2-5-260628",
-  "content": [
-    {
-      "type": "text",
-      "text": "A city."
-    }
-  ],
-  "ratio": "16:9",
-  "duration": 5,
-  "resolution": "720p",
-  "generate_audio": false,
-  "watermark": false,
-  "service_tier": "default"
-}
-```
-
-Optional keys sent: `service_tier`
-
 ### seed
 
 Reproducible sampling.
@@ -655,12 +634,11 @@ All optional parameters combined on one reference-to-video request.
   "callback_url": "https://example.com/hook",
   "return_last_frame": true,
   "execution_expires_after": 7200,
-  "safety_identifier": "u_9f3a",
-  "service_tier": "default"
+  "safety_identifier": "u_9f3a"
 }
 ```
 
-Optional keys sent: `seed`, `output_format`, `omni_reference_task_type`, `priority`, `callback_url`, `return_last_frame`, `execution_expires_after`, `safety_identifier`, `service_tier`
+Optional keys sent: `seed`, `output_format`, `omni_reference_task_type`, `priority`, `callback_url`, `return_last_frame`, `execution_expires_after`, `safety_identifier`
 
 ## Model selection
 
@@ -749,7 +727,7 @@ task-type cases — queue, consume a billed slot, and fail asynchronously minute
 | Duration 20s on Seedance 2.0 | 2.0 range is 4–15s. | Invalid duration 20. Must be 4–15s (or -1 to let the model choose) for model dreamina-seedance-2-0-260128. |
 | camera_fixed on Seedance 2.5 | Documented for Seedance 1.5 pro / 1.0 pro only. | camera_fixed is not supported by dreamina-seedance-2-5-260628. The API documents it for Dreamina Seedance 1.5 pro and 1.0 pro only. Express a locke… |
 | priority=10 | Range is 0–9. | Invalid priority 10. Must be 0–9. |
-| service_tier=flex on 2.5 | flex is unsupported on the 2.5 and 2.0 series. | service_tier='flex' is not supported by dreamina-seedance-2-5-260628. |
+| service_tier on 2.5 (any value) | Verified live: the API replies "must be empty" for both default and flex, on 2.5 and 2.0. | service_tier is not supported by dreamina-seedance-2-5-260628 — the API requires the field to be empty. Omit it. |
 | frames on Seedance 2.5 | frames is unsupported on 2.5/2.0; use duration. | frames is not supported by dreamina-seedance-2-5-260628. Use duration instead. |
 | execution_expires_after=3599 | Range is 3600–259200 seconds. | Invalid execution_expires_after 3599. Must be 3600–259200 seconds (1h–72h). |
 | safety_identifier over 64 chars | Maximum length is 64. | safety_identifier is 65 characters; the maximum is 64. |

@@ -14,8 +14,29 @@ Every request below was run against the live API. Task IDs and outcomes are the 
 | `extend` | ≥1 `reference_video`, `ratio=adaptive` | synchronous |
 
 Applies to **Seedance 2.5 only**, and only to omni-reference requests — those whose `content[]`
-carries `reference_image`, `reference_video`, or `reference_audio` roles. It does **not** apply to
-first-frame tasks (classified by `content.role`, a different task family) or to text-to-video.
+carries `reference_image`, `reference_video`, or `reference_audio` roles.
+
+### Scope: this covers three of Seedance's five task types
+
+Seedance classifies every request into one of five task types. This parameter governs the three
+that are decided **from the prompt**, which is exactly why they need it — the classification
+happens after the task queues.
+
+| Task type | Decided by | Covered here |
+|---|---|---|
+| Reference-to-video | prompt | ✅ [§2](#2-reference--generate-a-new-video-from-references) |
+| Video editing | prompt | ✅ [§3](#3-edit--change-what-is-in-an-existing-video) |
+| Video extension | prompt | ✅ [§4](#4-extend--continue-an-existing-video) |
+| Text-to-video | no references at all | ❌ parameter does not apply |
+| First-frame / first-last-frame | `content.role`, before the prompt is read | ❌ different task family |
+
+The two excluded types are not omni-reference tasks, so sending `omni_reference_task_type` with
+them is meaningless. **First-frame still locks `ratio` to `adaptive`** — it just gets that
+constraint from its role rather than from a declaration, which is why it can be validated up
+front without this parameter.
+
+For those two, and for every optional parameter, see
+[`request-permutations.md`](request-permutations.md), which covers all five task types.
 
 Set up once:
 

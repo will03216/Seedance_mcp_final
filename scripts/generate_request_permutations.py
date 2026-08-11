@@ -124,10 +124,6 @@ CASES: list[tuple[str, str, str, object]] = [
      "Opaque end-user identifier, max 64 chars.",
      lambda: c.submit_text_to_video("A city.", safety_identifier="u_9f3a")),
 
-    ("Optional parameters", "service_tier",
-     "`default` only on 2.5/2.0; `flex` is rejected.",
-     lambda: c.submit_text_to_video("A city.", service_tier="default")),
-
     ("Optional parameters", "seed",
      "Reproducible sampling.",
      lambda: c.submit_text_to_video("A city.", seed=42)),
@@ -144,8 +140,7 @@ CASES: list[tuple[str, str, str, object]] = [
          ratio="21:9", duration=12, resolution="720p", generate_audio=True,
          output_format="mov", seed=7, priority=5,
          callback_url="https://example.com/hook", return_last_frame=True,
-         execution_expires_after=7200, safety_identifier="u_9f3a",
-         service_tier="default")),
+         execution_expires_after=7200, safety_identifier="u_9f3a")),
 
     # ---- model selection -------------------------------------------------
     ("Model selection", "Seedance 2.0 (1080p)",
@@ -191,9 +186,9 @@ REJECTS: list[tuple[str, str, object]] = [
     ("priority=10",
      "Range is 0–9.",
      lambda: c.submit_text_to_video("A city.", priority=10)),
-    ("service_tier=flex on 2.5",
-     "flex is unsupported on the 2.5 and 2.0 series.",
-     lambda: c.submit_text_to_video("A city.", service_tier="flex")),
+    ("service_tier on 2.5 (any value)",
+     "Verified live: the API replies \"must be empty\" for both default and flex, on 2.5 and 2.0.",
+     lambda: c.submit_text_to_video("A city.", service_tier="default")),
     ("frames on Seedance 2.5",
      "frames is unsupported on 2.5/2.0; use duration.",
      lambda: c.submit_text_to_video("A city.", frames=33)),
@@ -227,6 +222,10 @@ A("the code: if behaviour changes, regenerating this document changes with it.\n
 A("Endpoint: `POST https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks`\n")
 A("Only non-default values are sent — every optional parameter is omitted unless set, so the")
 A("API's own defaults apply.\n")
+A("Covers all five Seedance task types. For a deeper treatment of the three that are classified")
+A("from the prompt — reference-to-video, video editing, video extension — including runnable curl")
+A("and the `omni_reference_task_type` parameter that moves their validation to submit time, see")
+A("[`omni-reference-task-type.md`](omni-reference-task-type.md).\n")
 
 A("## Model capabilities\n")
 A("| | " + " | ".join(m["label"] for m in MODELS.values()) + " |")
@@ -242,7 +241,7 @@ rows = [
     ("return_last_frame", lambda m: "yes" if m["supports_return_last_frame"] else "no"),
     ("camera_fixed", lambda m: "yes" if m["supports_camerafixed"] else "no"),
     ("frames", lambda m: "yes" if m["supports_frames"] else "no"),
-    ("service_tier=flex", lambda m: "yes" if m["supports_service_tier_flex"] else "no"),
+    ("service_tier", lambda m: "yes" if m["supports_service_tier"] else "no"),
 ]
 for label, fn in rows:
     A(f"| **{label}** | " + " | ".join(fn(m) for m in MODELS.values()) + " |")

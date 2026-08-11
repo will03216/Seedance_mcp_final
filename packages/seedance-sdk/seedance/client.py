@@ -596,9 +596,14 @@ class SeedanceClient:
                     f"Invalid service_tier {service_tier!r}. "
                     f"Must be one of: {', '.join(sorted(SERVICE_TIERS))}"
                 )
-            if service_tier == "flex" and not caps.get("supports_service_tier_flex", False):
+            # Verified live: the API replies "the specified parameter service_tier is
+            # not supported for model dreamina-seedance-2-5 ... must be empty" for BOTH
+            # values, on both 2.5 and 2.0, in t2v and r2v. Not just flex — the field
+            # itself is rejected, so it has to be omitted entirely.
+            if not caps.get("supports_service_tier", False):
                 raise ValidationError(
-                    f"service_tier='flex' is not supported by {model}."
+                    f"service_tier is not supported by {model} — the API requires the "
+                    "field to be empty. Omit it."
                 )
             params["service_tier"] = service_tier
 

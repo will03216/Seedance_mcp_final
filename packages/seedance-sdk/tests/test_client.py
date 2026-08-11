@@ -856,15 +856,18 @@ def test_frames_rejected_on_25(client):
         client.submit_text_to_video("test", frames=33)
 
 
-def test_service_tier_default_accepted(client):
-    with _mock_http({"id": "t", "status": "queued"}) as mock:
-        client.submit_text_to_video("test", service_tier="default")
-    assert _payload_of(mock)["service_tier"] == "default"
+@pytest.mark.parametrize("value", ["default", "flex"])
+def test_service_tier_rejected_entirely_on_25(client, value):
+    # Verified live: the API replies "the specified parameter service_tier is not
+    # supported for model dreamina-seedance-2-5 ... must be empty" for BOTH values,
+    # on 2.5 and 2.0, in t2v and r2v. The field must be omitted, not just kept off flex.
+    with pytest.raises(ValidationError, match="requires the field to be empty"):
+        client.submit_text_to_video("test", service_tier=value)
 
 
-def test_service_tier_flex_rejected_on_25(client):
-    with pytest.raises(ValidationError, match="flex"):
-        client.submit_text_to_video("test", service_tier="flex")
+def test_service_tier_rejected_on_20_too(client):
+    with pytest.raises(ValidationError, match="requires the field to be empty"):
+        client.submit_text_to_video("test", model="2.0", service_tier="default")
 
 
 def test_invalid_service_tier_rejected(client):
