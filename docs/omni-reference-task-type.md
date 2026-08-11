@@ -196,6 +196,11 @@ curl -X POST "$ARK_URL" \
 **Verified** — task `cgt-20260812020825-clk9t` → `succeeded`, 5s · `269:215` · 720p. The
 source-derived ratio confirms it edited the selected clip rather than generating something new.
 
+> This block omits `output_format`, so the API default (`mp4`) applies — that is exactly the
+> request that was run. Note the SDK differs here: `submit_video_edit()` defaults to `mov`, which
+> BytePlus recommends for edits. Raw curl and the SDK therefore produce different containers
+> unless you set the field explicitly.
+
 ---
 
 ## 4. `extend` — continue an existing video
