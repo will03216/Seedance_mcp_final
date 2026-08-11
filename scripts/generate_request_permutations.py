@@ -209,6 +209,9 @@ REJECTS: list[tuple[str, str, object]] = [
     ("last_frame_url without first_frame_url",
      "The API has no last-frame-only mode.",
      lambda: c.submit_image_to_video("test", last_frame_url=LF)),
+    ("Two reference videos on an edit",
+     "Verified live: the API requires exactly one video per edit.",
+     lambda: c.submit_video_edit("Video edit: remove the crowd.", [VID, "https://example.com/b.mov"])),
 ]
 
 L: list[str] = []

@@ -925,3 +925,25 @@ def test_missing_optional_response_fields_stay_none(client):
         r = client.check_task("t")
     assert r.last_frame_url is None and r.frames is None and r.total_tokens is None
     assert "frames" not in r.to_dict()
+
+
+def test_video_edit_requires_exactly_one_reference_video(client):
+    # Verified live: the API returns "must include exactly one reference video
+    # to be edited", which is stricter than the prose docs' "at least one".
+    with pytest.raises(ValidationError, match="exactly one reference video"):
+        client.submit_video_edit(
+            "Video edit: remove the crowd.",
+            ["https://e/a.mov", "https://e/b.mov"],
+        )
+
+
+def test_video_extend_still_accepts_multiple_reference_videos(client):
+    # Extension genuinely does take several sources (the docs' own sample uses 3).
+    with _mock_http({"id": "t", "status": "queued"}) as mock:
+        client.submit_video_extend(
+            "Extend @Video1 into @Video2, then @Video3.",
+            ["https://e/1.mov", "https://e/2.mp4", "https://e/3.mp4"],
+            duration=11,
+        )
+    vids = [c for c in _payload_of(mock)["content"] if c["type"] == "video_url"]
+    assert len(vids) == 3

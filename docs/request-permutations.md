@@ -716,3 +716,4 @@ task-type cases — queue, consume a billed slot, and fail asynchronously minute
 | audio-only on Seedance 2.0 | Audio-only input is a 2.5 exclusive. | Seedance 2.0 Standard does not support audio-only input. Pair audio_urls with image_urls, video_urls, or a first frame (audio-only generation requi… |
 | 11 reference videos on 2.5 | Limit is 10 videos. | Too many video_urls: 11 (max 10 for Seedance 2.5). |
 | last_frame_url without first_frame_url | The API has no last-frame-only mode. | last_frame_url requires first_frame_url. The API does not support last-frame-only mode. |
+| Two reference videos on an edit | Verified live: the API requires exactly one video per edit. | A video edit takes exactly one reference video — got 2. Edit one clip per request; to edit several, submit several tasks. (Extension does accept mu… |

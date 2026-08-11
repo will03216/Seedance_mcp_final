@@ -1073,6 +1073,16 @@ class SeedanceClient:
             )
         if not video_urls:
             raise ValidationError("video_urls is required for a video edit task.")
+        if len(video_urls) != 1:
+            # Verified live: declaring omni_reference_task_type="edit" with anything
+            # other than one reference video returns HTTP 400, "the request must
+            # include exactly one reference video to be edited". The prose docs say
+            # "at least one"; the API is the stricter authority.
+            raise ValidationError(
+                f"A video edit takes exactly one reference video — got {len(video_urls)}. "
+                "Edit one clip per request; to edit several, submit several tasks. "
+                "(Extension does accept multiple reference videos.)"
+            )
         warning = self._warn_missing_trigger(prompt, TASK_TYPE_EDIT)
 
         result = self.submit_image_to_video(
