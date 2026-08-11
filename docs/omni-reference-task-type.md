@@ -6,12 +6,16 @@ task has queued and been consumed.
 
 Every request below was run against the live API. Task IDs and outcomes are the real ones.
 
-| Value | Constraints the API enforces | Validation timing |
-|---|---|---|
-| `auto` *(default)* | none up front — the model infers from assets + prompt | **asynchronous**: task queues, is consumed, then fails |
-| `reference` | none on `ratio` / `duration` | synchronous |
-| `edit` | ≥1 `reference_video` (several allowed — the model picks the target), source 4–30s, `ratio=adaptive`, `duration=-1` | synchronous |
-| `extend` | ≥1 `reference_video`, `ratio=adaptive` | synchronous |
+| Value | Constraints the API enforces |
+|---|---|
+| `auto` *(default)* | none up front — the model infers from assets + prompt |
+| `reference` | none on `ratio` / `duration` |
+| `edit` | ≥1 `reference_video` (several allowed — the model picks the target), source 4–30s, `ratio=adaptive`, `duration=-1` |
+| `extend` | ≥1 `reference_video`, `ratio=adaptive` |
+
+Declaring any value other than `auto` moves validation to submit time: a violation comes back
+as an immediate 400 with no task created. Under `auto` the same violation surfaces only after
+the task has queued and been consumed.
 
 Applies to **Seedance 2.5 only**, and only to omni-reference requests — those whose `content[]`
 carries `reference_image`, `reference_video`, or `reference_audio` roles.
@@ -22,13 +26,13 @@ Seedance classifies every request into one of five task types. This parameter go
 that are decided **from the prompt**, which is exactly why they need it — the classification
 happens after the task queues.
 
-| Task type | Decided by | Covered here |
-|---|---|---|
-| Reference-to-video | prompt | ✅ [§2](#2-reference--generate-a-new-video-from-references) |
-| Video editing | prompt | ✅ [§3](#3-edit--change-what-is-in-an-existing-video) |
-| Video extension | prompt | ✅ [§4](#4-extend--continue-an-existing-video) |
-| Text-to-video | no references at all | ❌ parameter does not apply |
-| First-frame / first-last-frame | `content.role`, before the prompt is read | ❌ different task family |
+| Task type | Decided by |
+|---|---|
+| Reference-to-video | prompt — [§2](#2-reference--generate-a-new-video-from-references) |
+| Video editing | prompt — [§3](#3-edit--change-what-is-in-an-existing-video) |
+| Video extension | prompt — [§4](#4-extend--continue-an-existing-video) |
+| Text-to-video | no references at all — parameter does not apply |
+| First-frame / first-last-frame | `content.role`, before the prompt is read — different task family |
 
 The two excluded types are not omni-reference tasks, so sending `omni_reference_task_type` with
 them is meaningless. **First-frame still locks `ratio` to `adaptive`** — it just gets that
