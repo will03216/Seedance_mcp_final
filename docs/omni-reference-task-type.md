@@ -10,7 +10,7 @@ Every request below was run against the live API. Task IDs and outcomes are the 
 |---|---|---|
 | `auto` *(default)* | none up front — the model infers from assets + prompt | **asynchronous**: task queues, is consumed, then fails |
 | `reference` | none on `ratio` / `duration` | synchronous |
-| `edit` | ≥1 `reference_video` (see note), source 4–30s, `ratio=adaptive`, `duration=-1` | synchronous |
+| `edit` | ≥1 `reference_video` (several allowed — the model picks the target), source 4–30s, `ratio=adaptive`, `duration=-1` | synchronous |
 | `extend` | ≥1 `reference_video`, `ratio=adaptive` | synchronous |
 
 Applies to **Seedance 2.5 only**, and only to omni-reference requests — those whose `content[]`
@@ -62,6 +62,8 @@ curl -X POST "$ARK_URL" \
 > 8s · `16:9`). The rule is a safe recipe — `-1` cannot clash with any subtask — but a concrete
 > duration is fine as long as the model classifies the request as `reference`, where duration is
 > free. It only bites if the prompt reads as an edit.
+
+**Verified** — task `cgt-20260812020652-f4mzd` → `succeeded`, 8s · `16:9` · 720p · mp4.
 
 ---
 
@@ -160,6 +162,39 @@ curl -X POST "$ARK_URL" \
 Both values came from the source, not from the request. `269:215` is the source clip's exact
 aspect ratio — note it is **not** one of the seven values the request accepts, so a response
 `ratio` must never be fed back into a later request.
+
+### Several source videos
+
+An edit may carry more than one reference video. The model edits **one** of them — the one your
+prompt names — so tag the target explicitly.
+
+```bash
+curl -X POST "$ARK_URL" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ARK_API_KEY" \
+  -d '{
+    "model": "dreamina-seedance-2-5-260628",
+    "content": [
+      { "type": "text",
+        "text": "Video edit: remove the people in the background of @Video1." },
+      { "type": "video_url",
+        "video_url": { "url": "'"$DOC"'/doc_video/r2v_extend_video1_75.mov" },
+        "role": "reference_video" },
+      { "type": "video_url",
+        "video_url": { "url": "'"$DOC"'/doc_video/seedacne2.5_reference2.mp4" },
+        "role": "reference_video" }
+    ],
+    "omni_reference_task_type": "edit",
+    "ratio": "adaptive",
+    "duration": -1,
+    "resolution": "720p",
+    "generate_audio": false,
+    "watermark": false
+  }'
+```
+
+**Verified** — task `cgt-20260812020825-clk9t` → `succeeded`, 5s · `269:215` · 720p. The
+source-derived ratio confirms it edited the selected clip rather than generating something new.
 
 ---
 
@@ -326,11 +361,20 @@ Declaring the task type converts that into the HTTP 400 shown above.
 
 ## Caveats found while verifying
 
-**Declaration is not cross-checked against prompt intent.** The docs warn that a prompt
-conflicting with the declared type "will still trigger an error". That did not reproduce: an
-`edit` declaration paired with a plain-generation prompt ("A calm wide shot of a mountain lake at
-sunrise") was accepted and generated a video. Do not rely on the declaration being validated
-against what the prompt actually asks for.
+**A declaration does not exempt you from writing the right prompt.** The tutorial states that
+while processing, "the model still further determines the task type based on the prompt. If the
+actual task type identified by the model does not match the specified value, the task still
+triggers an asynchronous error."
+
+One attempt to provoke that did not error: an `edit` declaration paired with a plain-generation
+prompt ("A calm wide shot of a mountain lake at sunrise") was accepted and generated a video
+(`cgt-20260812005402-v42bp`, 5s · `269:215`). That is **not** evidence the check is absent — the
+model may simply have agreed the request was an edit, since redrawing a whole frame is one. The
+two outcomes are indistinguishable from the outside.
+
+Treat the documented behaviour as authoritative: declare the task type **and** write a prompt
+that matches it. The declaration moves parameter validation earlier; it does not override the
+model's reading of your prompt.
 
 **Reference URLs must be promptly fetchable.** Several submissions failed with
 `content[N].video_url ... timeout while fetching resource` on an asset that succeeded moments
